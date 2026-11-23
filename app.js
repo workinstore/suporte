@@ -1,0 +1,481 @@
+/* =========================================================
+   CENTRAL DE SUPORTE - Firebase Auth + Realtime Database
+   1) Substitua firebaseConfig pelos dados do seu projeto.
+   2) Ative "E-mail/senha" em Authentication > Sign-in method.
+   3) Cole database.rules.json em Realtime Database > Regras.
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyB9tnMqgbJcucac0fmfYOWIc1iCWiVE94I",
+  authDomain: "suporte-workin.firebaseapp.com",
+  databaseURL: "https://suporte-workin-default-rtdb.firebaseio.com",
+  projectId: "suporte-workin",
+  storageBucket: "suporte-workin.firebasestorage.app",
+  messagingSenderId: "964454475461",
+  appId: "1:964454475461:web:4a0d3256dac8ada811b2ac",
+  measurementId: "G-FSL2SKT01E"
+};
+
+
+const ADMIN_EMAIL = "admin@workinstore.org";
+const EMAIL_WHITELIST = ["gmail.com","googlemail.com","outlook.com","outlook.com.br","hotmail.com","hotmail.com.br","live.com","msn.com","yahoo.com","yahoo.com.br","icloud.com","me.com","uol.com.br","bol.com.br","terra.com.br","ig.com.br","globo.com","globomail.com","r7.com","protonmail.com","proton.me","aol.com","zoho.com","gmx.com","workinstore.org"];
+const PLATAFORMAS = ["Shopee","Mercado Livre","Facebook Marketplace"];
+const UFS = ["AC - Acre","AL - Alagoas","AP - Amapá","AM - Amazonas","BA - Bahia","CE - Ceará","DF - Distrito Federal","ES - Espírito Santo","GO - Goiás","MA - Maranhão","MT - Mato Grosso","MS - Mato Grosso do Sul","MG - Minas Gerais","PA - Pará","PB - Paraíba","PR - Paraná","PE - Pernambuco","PI - Piauí","RJ - Rio de Janeiro","RN - Rio Grande do Norte","RS - Rio Grande do Sul","RO - Rondônia","RR - Roraima","SC - Santa Catarina","SP - São Paulo","SE - Sergipe","TO - Tocantins"];
+const DEFAULT_WELCOME = "Olá! 👋 Bem-vindo(a) à nossa central de suporte. Escolha uma das dúvidas abaixo ou fale com um atendente.";
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+const TS = firebase.database.ServerValue.TIMESTAMP;
+
+/* ---------- utilidades ---------- */
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const toast = (m) => { const t = $("toast"); t.textContent = m; t.classList.remove("hidden"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hidden"), 3500); };
+const fmtDate = (ts) => ts ? new Date(ts).toLocaleString("pt-BR") : "";
+const avatarFallback = (n) => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><rect width='80' height='80' fill='#555'/><text x='50%' y='55%' font-size='34' fill='#fff' text-anchor='middle' dominant-baseline='middle' font-family='sans-serif'>${(n||"?")[0].toUpperCase()}</text></svg>`);
+const safeUrl = (u) => /^https?:\/\//i.test(u || "") ? u : "";
+const showView = (id) => { ["loginView","registerView","appView"].forEach(v => $(v).classList.toggle("hidden", v !== id)); };
+const validEmail = (e) => { const m = /^[^\s@]+@([^\s@]+\.[^\s@]+)$/.exec((e||"").trim().toLowerCase()); return !!m && EMAIL_WHITELIST.includes(m[1]); };
+const authErr = (e) => ({ "auth/invalid-credential":"E-mail ou senha incorretos.","auth/wrong-password":"Senha incorreta.","auth/user-not-found":"Conta não encontrada.","auth/email-already-in-use":"Este e-mail já está cadastrado.","auth/weak-password":"Senha fraca (mínimo 6 caracteres).","auth/too-many-requests":"Muitas tentativas. Aguarde um pouco." }[e.code] || e.message);
+
+/* máscara WhatsApp (00) 00000-0000 */
+function maskPhone(input) {
+  input.addEventListener("input", () => {
+    let d = input.value.replace(/\D/g, "").slice(0, 11);
+    let r = d;
+    if (d.length > 0) r = "(" + d.slice(0, 2);
+    if (d.length >= 3) r += ") " + d.slice(2, d.length > 10 ? 7 : 6);
+    if (d.length >= 7) r += "-" + d.slice(d.length > 10 ? 7 : 6);
+    input.value = r;
+  });
+}
+const phoneOk = (v) => /^\(\d{2}\) \d{4,5}-\d{4}$/.test(v);
+["rWhats","pWhats","sWhats"].forEach(id => maskPhone($(id)));
+$("rUF").innerHTML = '<option value="">Selecione...</option>' + UFS.map(u => `<option value="${u}">${u}</option>`).join("");
+
+/* ---------- temas ---------- */
+let siteSettings = {};
+function applyTheme(t) { document.body.dataset.theme = t; applyAccent(); }
+function applyAccent() {
+  const s = siteSettings;
+  document.documentElement.style.setProperty("--radius", s.radius || "14px");
+  if (s.useAccent && /^#[0-9a-f]{6}$/i.test(s.accent || "")) {
+    document.body.style.setProperty("--accent", s.accent);
+    document.body.style.setProperty("--glow", s.accent + "40");
+  } else { document.body.style.removeProperty("--accent"); document.body.style.removeProperty("--glow"); }
+}
+applyTheme(localStorage.getItem("theme") || "cyan");
+$("themeBtn").onclick = () => $("themeMenu").classList.toggle("hidden");
+document.querySelectorAll("[data-set-theme]").forEach(b => b.onclick = () => {
+  localStorage.setItem("theme", b.dataset.setTheme); applyTheme(b.dataset.setTheme); $("themeMenu").classList.add("hidden");
+});
+
+db.ref("settings").on("value", (s) => {
+  siteSettings = s.val() || {};
+  const name = siteSettings.siteName || "Central de Suporte";
+  document.querySelectorAll(".site-name").forEach(e => e.textContent = name);
+  document.title = name;
+  document.body.dataset.layout = siteSettings.layout || "sidebar";
+  if (!localStorage.getItem("theme") && siteSettings.defaultTheme) applyTheme(siteSettings.defaultTheme); else applyAccent();
+});
+
+/* ---------- produtos (públicos para o cadastro) ---------- */
+let products = {};
+db.ref("products").on("value", (s) => { products = s.val() || {}; renderProductPick("rProdutos"); renderProductPick("oProdutos"); renderProdAdmin(); });
+function renderProductPick(boxId) {
+  const box = $(boxId); box.innerHTML = "";
+  const ids = Object.keys(products);
+  if (!ids.length) { box.append(el("p", "muted", "Nenhum produto cadastrado ainda.")); return; }
+  ids.forEach(id => {
+    const l = el("label"); const r = el("input"); r.type = "radio"; r.name = boxId; r.value = id;
+    const t = el("span"); t.append(el("strong", null, products[id].nome)); if (products[id].descricao) { t.append(el("br")); t.append(el("small", "muted", products[id].descricao)); }
+    l.append(r, t); box.append(l);
+  });
+}
+const pickedProduct = (boxId) => { const r = document.querySelector(`input[name="${boxId}"]:checked`); return r ? r.value : null; };
+$("rPedido").addEventListener("input", e => $("rProdutosBox").classList.toggle("hidden", !e.target.value.trim()));
+$("oPedido").addEventListener("input", e => $("oProdutosBox").classList.toggle("hidden", !e.target.value.trim()));
+
+/* ---------- login / cadastro ---------- */
+$("goRegister").onclick = (e) => { e.preventDefault(); showView("registerView"); };
+$("goLogin").onclick = (e) => { e.preventDefault(); showView("loginView"); };
+$("loginForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try { await auth.signInWithEmailAndPassword($("loginEmail").value.trim(), $("loginPass").value); }
+  catch (err) { toast(authErr(err)); }
+};
+$("forgotBtn").onclick = async () => {
+  const em = $("loginEmail").value.trim();
+  if (!em) return toast("Digite seu e-mail no campo acima.");
+  try { await auth.sendPasswordResetEmail(em); toast("Se o e-mail existir, enviamos o link de redefinição."); } catch (err) { toast(authErr(err)); }
+};
+
+let registering = false;
+$("registerForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const d = { nome: $("rNome").value.trim(), sobrenome: $("rSobrenome").value.trim(), email: $("rEmail").value.trim().toLowerCase(),
+    whatsapp: $("rWhats").value, cidade: $("rCidade").value.trim(), uf: $("rUF").value };
+  const plat = $("rPlataforma").value, pedido = $("rPedido").value.trim(), prod = pickedProduct("rProdutos");
+  if (Object.values(d).some(v => !v) || !plat || !pedido) return toast("Preencha todos os campos.");
+  if (!validEmail(d.email)) return toast("Use um e-mail de um provedor conhecido (Gmail, Outlook, Yahoo, iCloud...).");
+  if ($("rPass").value !== $("rPass2").value) return toast("As senhas não conferem.");
+  if (!phoneOk(d.whatsapp)) return toast("WhatsApp inválido.");
+  if (!PLATAFORMAS.includes(plat)) return toast("Escolha a plataforma.");
+  if (!prod) return toast("Selecione o produto do pedido.");
+  if (!UFS.includes(d.uf)) return toast("Selecione o estado.");
+  try {
+    registering = true;
+    const cred = await auth.createUserWithEmailAndPassword(d.email, $("rPass").value);
+    const uid = cred.user.uid;
+    await db.ref("users/" + uid).set({ ...d, foto: "", criadoEm: TS });
+    await db.ref("orders/" + uid).push({ plataforma: plat, numero: pedido, produtoId: prod, produtoNome: products[prod].nome, criadoEm: TS });
+    registering = false;
+    startApp(cred.user);
+    toast("Conta criada com sucesso!");
+  } catch (err) { registering = false; toast(authErr(err)); }
+};
+$("logoutBtn").onclick = () => auth.signOut();
+
+/* ---------- sessão ---------- */
+let me = null, myRole = "user", offs = [];
+const listen = (ref, ev, fn) => { ref.on(ev, fn); offs.push(() => ref.off(ev, fn)); };
+
+auth.onAuthStateChanged(async (user) => {
+  offs.forEach(f => f()); offs = [];
+  $("loading").classList.add("hidden");
+  if (!user) { me = null; showView("loginView"); return; }
+  if (!registering) startApp(user);
+});
+
+async function startApp(user) {
+  offs.forEach(f => f()); offs = [];
+  const isAdmin = user.email === ADMIN_EMAIL;
+  let role = "user";
+  if (isAdmin) role = "admin";
+  else { const r = await db.ref("roles/" + user.uid).get(); if (r.val() === "moderator") role = "moderator"; }
+  myRole = role;
+  const snap = await db.ref("users/" + user.uid).get();
+  let profile = snap.val();
+  if (!profile && isAdmin) { profile = { nome: "Administrador", sobrenome: "", email: user.email, whatsapp: "(00) 00000-0000", cidade: "-", uf: "SP - São Paulo", foto: "" }; await db.ref("users/" + user.uid).set(profile); }
+  me = { uid: user.uid, email: user.email, ...(profile || {}) };
+  listen(db.ref("users/" + user.uid), "value", s => { if (s.val()) { me = { ...me, ...s.val() }; renderMe(); } });
+  renderMe();
+  buildNav();
+  showView("appView");
+}
+
+function renderMe() {
+  $("meName").textContent = (me.nome || "") + " " + (me.sobrenome || "");
+  $("meRole").textContent = { admin: "Administrador", moderator: "Moderador", user: "Cliente" }[myRole];
+  const foto = me.foto || avatarFallback(me.nome);
+  $("meAvatar").src = foto; $("pAvatar").src = foto;
+  $("pNome").value = me.nome + " " + me.sobrenome; $("pEmail").value = me.email;
+  if (document.activeElement !== $("pWhats")) $("pWhats").value = me.whatsapp || "";
+  $("pLocal").value = (me.cidade || "") + " / " + (me.uf || "");
+}
+
+/* ---------- navegação ---------- */
+const TABS = {
+  user: [["pedidos","Meus pedidos"],["suporte","Suporte"],["links","Links úteis"],["perfil","Perfil"]],
+  moderator: [["chamados","Chamados"],["links","Links úteis"],["perfil","Perfil"]],
+  admin: [["chamados","Chamados"],["usuarios","Usuários"],["produtos","Produtos"],["automacao","Automação"],["linksadm","Links"],["aparencia","Aparência"],["perfil","Perfil"]]
+};
+function buildNav() {
+  const nav = $("nav"); nav.innerHTML = "";
+  TABS[myRole].forEach(([id, label], i) => {
+    const b = el("button"); b.dataset.tab = id; b.append(el("span", null, label));
+    if (id === "chamados") { const n = el("span", "notif hidden"); n.id = "notifBadge"; b.append(n); }
+    b.onclick = () => openTab(id); nav.append(b);
+  });
+  initData();
+  openTab(TABS[myRole][0][0]);
+}
+function openTab(id) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("hidden", t.id !== "tab-" + id));
+  document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === id));
+  if (id === "suporte") startClientChat();
+}
+
+function initData() {
+  listen(db.ref("links"), "value", renderLinks);
+  if (myRole === "user") listen(db.ref("orders/" + me.uid), "value", renderOrders);
+  if (myRole !== "user") listen(db.ref("chats"), "value", renderTickets);
+  if (myRole === "admin") {
+    listen(db.ref("faq"), "value", renderFaqAdmin);
+    listen(db.ref("users"), "value", s => { allUsers = s.val() || {}; renderUsers(); });
+    listen(db.ref("roles"), "value", s => { allRoles = s.val() || {}; renderUsers(); });
+    $("welcomeMsg").value = siteSettings.welcome || DEFAULT_WELCOME;
+    $("lkNome").value = siteSettings.siteName || "Central de Suporte";
+    $("lkTema").value = siteSettings.defaultTheme || "cyan";
+    $("lkLayout").value = siteSettings.layout || "sidebar";
+    $("lkRadius").value = siteSettings.radius || "14px";
+    $("lkAccent").value = siteSettings.accent || "#19d3e6";
+    $("lkUseAccent").checked = !!siteSettings.useAccent;
+  }
+}
+
+/* ---------- pedidos ---------- */
+function renderOrders(s) {
+  const box = $("ordersList"); box.innerHTML = "";
+  const o = s.val() || {};
+  const ids = Object.keys(o).sort((a, b) => (o[b].criadoEm || 0) - (o[a].criadoEm || 0));
+  if (!ids.length) box.append(el("p", "muted", "Nenhum pedido."));
+  ids.forEach(id => {
+    const c = el("div", "card"); c.append(el("h4", null, o[id].produtoNome));
+    c.append(el("p", null, o[id].plataforma + " • Pedido " + o[id].numero)); c.append(el("p", null, fmtDate(o[id].criadoEm)));
+    box.append(c);
+  });
+}
+$("newOrderForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const plat = $("oPlataforma").value, num = $("oPedido").value.trim(), prod = pickedProduct("oProdutos");
+  if (!PLATAFORMAS.includes(plat) || !num || !prod) return toast("Preencha plataforma, número e produto.");
+  await db.ref("orders/" + me.uid).push({ plataforma: plat, numero: num, produtoId: prod, produtoNome: products[prod].nome, criadoEm: TS });
+  e.target.reset(); $("oProdutosBox").classList.add("hidden"); toast("Pedido adicionado!");
+};
+
+/* ---------- perfil ---------- */
+let pendingFoto = null;
+function compressImage(file, maxBytes = 25 * 1024) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const c = document.createElement("canvas"); const ctx = c.getContext("2d");
+      let size = 256, q = 0.85, data;
+      for (let i = 0; i < 25; i++) {
+        const r = Math.min(size / img.width, size / img.height, 1);
+        c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        data = c.toDataURL("image/jpeg", q);
+        if (data.length * 0.75 <= maxBytes) break;
+        if (q > 0.4) q -= 0.1; else size = Math.round(size * 0.8);
+      }
+      URL.revokeObjectURL(url);
+      data.length * 0.75 <= maxBytes ? resolve(data) : reject(new Error("Não foi possível reduzir a imagem."));
+    };
+    img.onerror = () => reject(new Error("Imagem inválida."));
+    img.src = url;
+  });
+}
+$("pFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try { pendingFoto = await compressImage(f); $("pAvatar").src = pendingFoto; $("pFotoUrl").value = ""; toast("Imagem pronta (" + Math.round(pendingFoto.length * 0.75 / 1024) + " KB). Clique em salvar."); }
+  catch (err) { toast(err.message); }
+};
+$("pFotoUrl").oninput = (e) => { const u = safeUrl(e.target.value.trim()); if (u) { pendingFoto = u; $("pAvatar").src = u; } };
+$("profileForm").onsubmit = async (e) => {
+  e.preventDefault();
+  if (!phoneOk($("pWhats").value)) return toast("WhatsApp inválido.");
+  const upd = { whatsapp: $("pWhats").value };
+  if (pendingFoto) upd.foto = pendingFoto;
+  try { await db.ref("users/" + me.uid).update(upd); pendingFoto = null; $("pFile").value = ""; toast("Perfil atualizado!"); } catch (err) { toast("Erro: " + err.message); }
+};
+$("resetPassBtn").onclick = async () => { await auth.sendPasswordResetEmail(me.email); toast("Link de troca de senha enviado para " + me.email); };
+
+/* ---------- links ---------- */
+let linksData = {};
+function renderLinks(s) {
+  linksData = s.val() || {};
+  const box = $("linksList"); box.innerHTML = "";
+  const adm = $("linkAdmList"); adm.innerHTML = "";
+  Object.entries(linksData).forEach(([id, l]) => {
+    const u = safeUrl(l.url); if (!u) return;
+    const a = el("a", "card"); a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.append(el("h4", null, l.titulo), el("p", null, u)); box.append(a);
+    const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, l.titulo), el("small", null, u));
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir link?") && db.ref("links/" + id).remove();
+    r.append(t, del); adm.append(r);
+  });
+  if (!box.children.length) box.append(el("p", "muted", "Nenhum link disponível."));
+}
+$("linkForm").onsubmit = async (e) => {
+  e.preventDefault(); const u = safeUrl($("linkUrl").value.trim()); if (!u) return toast("URL inválida.");
+  await db.ref("links").push({ titulo: $("linkTitulo").value.trim(), url: u }); e.target.reset(); toast("Link adicionado.");
+};
+
+/* ---------- produtos (admin) ---------- */
+function renderProdAdmin() {
+  const box = $("prodList"); box.innerHTML = "";
+  Object.entries(products).forEach(([id, p]) => {
+    const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, p.nome), el("small", null, p.descricao || ""));
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir produto?") && db.ref("products/" + id).remove();
+    r.append(t, del); box.append(r);
+  });
+}
+$("prodForm").onsubmit = async (e) => {
+  e.preventDefault();
+  await db.ref("products").push({ nome: $("prodNome").value.trim(), descricao: $("prodDesc").value.trim() }); e.target.reset(); toast("Produto cadastrado.");
+};
+
+/* ---------- automação / FAQ ---------- */
+let faqData = {};
+db.ref("faq").on("value", s => { faqData = s.val() || {}; if (chatState.uid) renderFaqButtons(); });
+function renderFaqAdmin(s) {
+  const box = $("faqList"); box.innerHTML = "";
+  Object.entries(s.val() || {}).forEach(([id, f]) => {
+    const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, f.pergunta), el("small", null, f.resposta));
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir pergunta?") && db.ref("faq/" + id).remove();
+    r.append(t, del); box.append(r);
+  });
+}
+$("faqForm").onsubmit = async (e) => {
+  e.preventDefault(); await db.ref("faq").push({ pergunta: $("faqQ").value.trim(), resposta: $("faqA").value.trim() }); e.target.reset(); toast("Pergunta adicionada.");
+};
+$("saveWelcome").onclick = async () => { await db.ref("settings/welcome").set($("welcomeMsg").value.trim() || DEFAULT_WELCOME); toast("Boas-vindas salvas."); };
+
+/* ---------- aparência ---------- */
+$("lookForm").onsubmit = async (e) => {
+  e.preventDefault();
+  await db.ref("settings").update({ siteName: $("lkNome").value.trim() || "Central de Suporte", defaultTheme: $("lkTema").value, layout: $("lkLayout").value,
+    radius: $("lkRadius").value, accent: $("lkAccent").value, useAccent: $("lkUseAccent").checked });
+  toast("Aparência salva para todos os usuários.");
+};
+
+/* ---------- chat do cliente ---------- */
+const chatState = { uid: null, status: "bot" };
+const STATUS_TXT = { bot: "Assistente virtual", waiting: "Aguardando atendente", open: "Em atendimento", closed: "Encerrado" };
+function renderMsg(box, m, mine) {
+  if (m.from === "sys") { box.append(el("div", "msg sys", m.text)); return; }
+  const d = el("div", "msg" + (mine ? " me" : "") + (m.from === "bot" ? " bot" : ""));
+  d.append(el("span", "who", m.from === "bot" ? "🤖 Assistente" : (m.nome || "")), document.createTextNode(m.text));
+  box.append(d); box.scrollTop = box.scrollHeight;
+}
+const sendMsg = (uid, from, text, nome) => db.ref(`chats/${uid}/messages`).push({ from, text: text.slice(0, 2000), nome: nome || "", ts: TS });
+const setMeta = (uid, upd) => db.ref(`chats/${uid}/meta`).update({ ...upd, updatedAt: TS });
+
+async function startClientChat() {
+  if (chatState.uid === me.uid) return;
+  chatState.uid = me.uid;
+  const box = $("chatMsgs"); box.innerHTML = "";
+  const metaSnap = await db.ref(`chats/${me.uid}/meta`).get();
+  if (!metaSnap.exists()) {
+    await setMeta(me.uid, { status: "bot", nome: me.nome + " " + me.sobrenome, email: me.email, whatsapp: me.whatsapp });
+    await sendMsg(me.uid, "bot", siteSettings.welcome || DEFAULT_WELCOME);
+  }
+  listen(db.ref(`chats/${me.uid}/messages`).limitToLast(200), "child_added", s => renderMsg(box, s.val(), s.val().from === me.uid));
+  listen(db.ref(`chats/${me.uid}/meta`), "value", s => {
+    chatState.status = (s.val() || {}).status || "bot";
+    $("chatStatus").textContent = STATUS_TXT[chatState.status];
+    renderFaqButtons();
+  });
+}
+function renderFaqButtons() {
+  const box = $("faqBtns"); box.innerHTML = "";
+  if (myRole !== "user") return;
+  if (chatState.status === "bot" || chatState.status === "closed") {
+    Object.values(faqData).forEach(f => {
+      const b = el("button", null, f.pergunta);
+      b.onclick = async () => { await sendMsg(me.uid, me.uid, f.pergunta, me.nome); setTimeout(() => sendMsg(me.uid, "bot", f.resposta + "\n\nIsso resolveu sua dúvida? Se não, clique em \"Falar com atendente\"."), 500); };
+      box.append(b);
+    });
+    const h = el("button", "human", "🙋 Falar com atendente");
+    h.onclick = async () => {
+      await setMeta(me.uid, { status: "waiting", nome: me.nome + " " + me.sobrenome, email: me.email, whatsapp: me.whatsapp, unread: true });
+      await sendMsg(me.uid, "sys", "Você entrou na fila. Um atendente responderá em breve.");
+    };
+    box.append(h);
+  }
+}
+$("chatForm").onsubmit = async (e) => {
+  e.preventDefault(); const t = $("chatText").value.trim(); if (!t) return;
+  $("chatText").value = "";
+  await sendMsg(me.uid, me.uid, t, me.nome);
+  if (chatState.status === "open" || chatState.status === "waiting") await setMeta(me.uid, { unread: true });
+  else if (chatState.status === "bot" || chatState.status === "closed") {
+    const hit = Object.values(faqData).find(f => t.toLowerCase().split(/\s+/).filter(w => w.length > 3).some(w => f.pergunta.toLowerCase().includes(w)));
+    setTimeout(() => sendMsg(me.uid, "bot", hit ? hit.pergunta + "\n" + hit.resposta : "Não encontrei uma resposta automática. Escolha uma opção abaixo ou clique em \"Falar com atendente\"."), 500);
+  }
+};
+
+/* ---------- mesa de atendimento (admin/moderador) ---------- */
+let deskUid = null, deskOff = null, lastWaiting = 0;
+function renderTickets(s) {
+  const chats = s.val() || {};
+  const list = $("ticketList"); list.innerHTML = "";
+  const order = { waiting: 0, open: 1, bot: 2, closed: 3 };
+  const ids = Object.keys(chats).filter(id => chats[id].meta).sort((a, b) => (order[chats[a].meta.status] - order[chats[b].meta.status]) || (chats[b].meta.updatedAt - chats[a].meta.updatedAt));
+  const waiting = ids.filter(id => chats[id].meta.status === "waiting" || (chats[id].meta.status === "open" && chats[id].meta.unread)).length;
+  const badge = $("notifBadge");
+  if (badge) { badge.textContent = waiting; badge.classList.toggle("hidden", !waiting); }
+  if (waiting > lastWaiting) { toast("🔔 Novo chamado aguardando atendimento!"); try { new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=").play(); } catch (_) {} }
+  lastWaiting = waiting;
+  if (!ids.length) list.append(el("p", "muted", "Nenhuma conversa."));
+  ids.forEach(id => {
+    const m = chats[id].meta;
+    const b = el("button", "ticket" + (m.status === "waiting" ? " waiting" : "") + (id === deskUid ? " sel" : ""));
+    b.append(el("strong", null, m.nome || id), el("small", null, STATUS_TXT[m.status] + (m.unread ? " • nova mensagem" : "") + (m.agentName ? " • " + m.agentName : "")), el("small", null, fmtDate(m.updatedAt)));
+    b.onclick = () => openDesk(id, m); list.append(b);
+  });
+  if (deskUid && chats[deskUid]) updateDeskInfo(chats[deskUid].meta);
+}
+function updateDeskInfo(m) {
+  $("deskTitle").textContent = (m.nome || "") + " — " + STATUS_TXT[m.status];
+  $("deskInfo").textContent = `${m.email || ""} • WhatsApp ${m.whatsapp || "-"}`;
+}
+async function openDesk(uid, m) {
+  if (deskOff) deskOff();
+  deskUid = uid; updateDeskInfo(m);
+  const box = $("deskMsgs"); box.innerHTML = "";
+  const ref = db.ref(`chats/${uid}/messages`).limitToLast(300);
+  const fn = s => renderMsg(box, s.val(), s.val().from === me.uid);
+  ref.on("child_added", fn); deskOff = () => ref.off("child_added", fn);
+  if (m.unread && m.status === "open") setMeta(uid, { unread: false });
+  // pedidos do cliente
+  const o = (await db.ref("orders/" + uid).get()).val() || {};
+  const ped = Object.values(o).map(x => `${x.produtoNome} (${x.plataforma} #${x.numero})`).join(" | ");
+  if (ped) $("deskInfo").textContent += " • Pedidos: " + ped;
+}
+$("deskTake").onclick = async () => {
+  if (!deskUid) return;
+  await setMeta(deskUid, { status: "open", unread: false, agent: me.uid, agentName: me.nome });
+  await sendMsg(deskUid, "sys", `${me.nome} entrou no atendimento.`);
+};
+$("deskClose").onclick = async () => {
+  if (!deskUid) return;
+  await setMeta(deskUid, { status: "closed", unread: false });
+  await sendMsg(deskUid, "sys", "Atendimento encerrado. Se precisar, é só chamar novamente.");
+};
+$("deskForm").onsubmit = async (e) => {
+  e.preventDefault(); const t = $("deskText").value.trim(); if (!t || !deskUid) return;
+  $("deskText").value = "";
+  await sendMsg(deskUid, me.uid, t, me.nome + (myRole === "admin" ? " (Admin)" : " (Suporte)"));
+  await setMeta(deskUid, { status: "open", unread: false, agent: me.uid, agentName: me.nome });
+};
+
+/* ---------- usuários (admin) ---------- */
+let allUsers = {}, allRoles = {};
+function renderUsers() {
+  const box = $("userList"); if (!box) return; box.innerHTML = "";
+  const q = $("userSearch").value.toLowerCase();
+  Object.entries(allUsers).filter(([, u]) => ((u.nome + " " + u.sobrenome + " " + u.email).toLowerCase().includes(q))).forEach(([uid, u]) => {
+    const r = el("div", "row"); const t = el("div");
+    t.append(el("strong", null, u.nome + " " + u.sobrenome), el("small", null, `${u.email} • ${u.whatsapp} • ${u.cidade}/${(u.uf || "").slice(0, 2)}`));
+    const a = el("div", "actions");
+    if (u.email !== ADMIN_EMAIL) {
+      const sel = el("select"); sel.innerHTML = '<option value="user">Cliente</option><option value="moderator">Moderador</option>';
+      sel.value = allRoles[uid] === "moderator" ? "moderator" : "user";
+      sel.onchange = () => db.ref("roles/" + uid).set(sel.value).then(() => toast("Função atualizada."));
+      const del = el("button", "btn small danger", "Remover dados");
+      del.onclick = async () => { if (!confirm("Remover dados, pedidos e chat deste usuário?")) return;
+        await db.ref().update({ ["users/" + uid]: null, ["orders/" + uid]: null, ["chats/" + uid]: null, ["roles/" + uid]: null }); toast("Dados removidos."); };
+      a.append(sel, del);
+    } else a.append(el("span", "badge", "Admin"));
+    r.append(t, a); box.append(r);
+  });
+}
+$("userSearch").oninput = renderUsers;
+// cria conta usando uma instância secundária, para o admin não ser deslogado
+$("staffForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("sEmail").value.trim().toLowerCase();
+  if (!validEmail(email)) return toast("E-mail fora da lista de provedores aceitos.");
+  if (!phoneOk($("sWhats").value)) return toast("WhatsApp inválido.");
+  const sec = firebase.apps.find(a => a.name === "secondary") || firebase.initializeApp(firebaseConfig, "secondary");
+  try {
+    const cred = await sec.auth().createUserWithEmailAndPassword(email, $("sPass").value);
+    const uid = cred.user.uid; await sec.auth().signOut();
+    await db.ref("users/" + uid).set({ nome: $("sNome").value.trim(), sobrenome: $("sSobrenome").value.trim(), email, whatsapp: $("sWhats").value, cidade: "-", uf: "SP - São Paulo", foto: "", criadoEm: TS });
+    await db.ref("roles/" + uid).set($("sRole").value);
+    e.target.reset(); toast("Conta criada!");
+  } catch (err) { toast(authErr(err)); }
+};
