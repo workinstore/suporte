@@ -247,6 +247,7 @@ function openTab(id) {
 
 function initData() {
   listen(db.ref("links"), "value", renderLinks);
+  listen(db.ref("faq"), "value", s => { faqData = s.val() || {}; });
   if (myRole === "user") listen(db.ref("orders/" + me.uid), "value", s => { myOrders = s.val() || {}; renderOrders(s); renderSupportOrders(); });
   if (myRole !== "user") listen(db.ref("chats"), "value", renderTickets);
   if (myRole === "admin") {
@@ -409,7 +410,10 @@ $("prodForm").onsubmit = async (e) => {
 
 /* ---------- automação / FAQ ---------- */
 let faqData = {};
-db.ref("faq").on("value", s => { faqData = s.val() || {}; if (chatState.uid) renderFaqButtons(); });
+async function loadFaq() {
+  try { const s = await db.ref("faq").get(); faqData = s.val() || {}; } catch (_) {}
+  return faqData;
+}
 let faqAdmData = {};
 function renderFaqAdmin(s) {
   if (s) faqAdmData = s.val() || {};
@@ -585,6 +589,7 @@ $("chatForm").onsubmit = async (e) => {
   await sendMsg(uid, tid, uid, t, me.nome);
   if (chatState.status === "open" || chatState.status === "waiting") await setMeta(uid, tid, { unread: true });
   else if (chatState.status === "bot") {
+    await loadFaq();
     suggest = searchFaq(t);
     renderFaqButtons();
     const n = suggest.length;
