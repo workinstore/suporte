@@ -166,7 +166,8 @@
       <form id="prodForm" class="panel grid2">
         <label>Nome do produto<input id="prodNome" required maxlength="80"></label>
         <label>Descrição<input id="prodDesc" maxlength="200"></label>
-        <button class="btn primary span2">Cadastrar produto</button>
+        <div class="span2 actions"><button id="prodSubmit" class="btn primary">Cadastrar produto</button>
+        <button id="prodCancel" type="button" class="btn ghost hidden">Cancelar edição</button></div>
       </form>
       <input id="prodSearch" class="search" placeholder="Buscar produto por nome ou descrição...">
       <div id="prodList" class="list" data-rerender="renderProdAdmin"></div>
@@ -195,7 +196,8 @@
       <form id="faqForm" class="panel grid2">
         <label class="span2">Pergunta frequente<input id="faqQ" required maxlength="150"></label>
         <label class="span2">Resposta automática<textarea id="faqA" rows="3" required maxlength="1500"></textarea></label>
-        <button class="btn primary span2">Adicionar pergunta</button>
+        <div class="span2 actions"><button id="faqSubmit" class="btn primary">Adicionar pergunta</button>
+        <button id="faqCancel" type="button" class="btn ghost hidden">Cancelar edição</button></div>
       </form>
       <input id="faqSearch" class="search" placeholder="Buscar pergunta ou resposta...">
       <div id="faqList" class="list" data-rerender="renderFaqAdmin"></div>

@@ -386,15 +386,25 @@ function renderProdAdmin() {
   if (!items.length) box.append(el("p", "muted", "Nenhum produto encontrado."));
   paginate("prod", items, box, "prodPager").forEach(([id, p]) => {
     const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, p.nome), el("small", null, p.descricao || ""));
+    const ed = el("button", "btn small", "Editar"); ed.onclick = () => {
+      editingProd = id; $("prodNome").value = p.nome; $("prodDesc").value = p.descricao || "";
+      $("prodSubmit").textContent = "Salvar alterações"; $("prodCancel").classList.remove("hidden"); $("prodNome").focus();
+    };
     const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir produto?") && db.ref("products/" + id).remove();
-    r.append(t, del); box.append(r);
+    const a = el("div", "actions"); a.append(ed, del); r.append(t, a); box.append(r);
   });
 }
 window.renderProdAdmin = renderProdAdmin;
 searchBind("prodSearch", "prod", renderProdAdmin);
+let editingProd = null;
+function resetProdForm() { editingProd = null; $("prodForm").reset(); $("prodSubmit").textContent = "Cadastrar produto"; $("prodCancel").classList.add("hidden"); }
+$("prodCancel").onclick = resetProdForm;
 $("prodForm").onsubmit = async (e) => {
   e.preventDefault();
-  await db.ref("products").push({ nome: $("prodNome").value.trim(), descricao: $("prodDesc").value.trim() }); e.target.reset(); toast("Produto cadastrado.");
+  const data = { nome: $("prodNome").value.trim(), descricao: $("prodDesc").value.trim() };
+  if (editingProd) { await db.ref("products/" + editingProd).update(data); toast("Produto atualizado."); }
+  else { await db.ref("products").push(data); toast("Produto cadastrado."); }
+  resetProdForm();
 };
 
 /* ---------- automação / FAQ ---------- */
@@ -409,14 +419,25 @@ function renderFaqAdmin(s) {
   if (!items.length) box.append(el("p", "muted", "Nenhuma pergunta encontrada."));
   paginate("faq", items, box, "faqPager").forEach(([id, f]) => {
     const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, f.pergunta), el("small", null, f.resposta));
+    const ed = el("button", "btn small", "Editar"); ed.onclick = () => {
+      editingFaq = id; $("faqQ").value = f.pergunta; $("faqA").value = f.resposta;
+      $("faqSubmit").textContent = "Salvar alterações"; $("faqCancel").classList.remove("hidden"); $("faqQ").focus();
+    };
     const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir pergunta?") && db.ref("faq/" + id).remove();
-    r.append(t, del); box.append(r);
+    const a = el("div", "actions"); a.append(ed, del); r.append(t, a); box.append(r);
   });
 }
 window.renderFaqAdmin = renderFaqAdmin;
 searchBind("faqSearch", "faq", renderFaqAdmin);
+let editingFaq = null;
+function resetFaqForm() { editingFaq = null; $("faqForm").reset(); $("faqSubmit").textContent = "Adicionar pergunta"; $("faqCancel").classList.add("hidden"); }
+$("faqCancel").onclick = resetFaqForm;
 $("faqForm").onsubmit = async (e) => {
-  e.preventDefault(); await db.ref("faq").push({ pergunta: $("faqQ").value.trim(), resposta: $("faqA").value.trim() }); e.target.reset(); toast("Pergunta adicionada.");
+  e.preventDefault();
+  const data = { pergunta: $("faqQ").value.trim(), resposta: $("faqA").value.trim() };
+  if (editingFaq) { await db.ref("faq/" + editingFaq).update(data); toast("Pergunta atualizada."); }
+  else { await db.ref("faq").push(data); toast("Pergunta adicionada."); }
+  resetFaqForm();
 };
 $("saveWelcome").onclick = async () => { await db.ref("settings/welcome").set($("welcomeMsg").value.trim() || DEFAULT_WELCOME); toast("Boas-vindas salvas."); };
 
