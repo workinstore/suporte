@@ -30,7 +30,18 @@ const TS = firebase.database.ServerValue.TIMESTAMP;
 /* ---------- utilidades ---------- */
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-const toast = (m) => { const t = $("toast"); t.textContent = m; t.classList.remove("hidden"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hidden"), 3500); };
+const toastType = (m) => /^(erro|error)|inválid|não conferem|preencha|selecione|escolha|digite|informe|use um|fora da|encerrad/i.test(m) ? "error" : /sucesso|salv|atualizad|adicionad|cadastrad|criada|enviamos|enviado|pronta|removidos/i.test(m) ? "success" : "info";
+const toast = (m, type) => { const t = $("toast"); type = type || toastType(String(m)); t.className = "toast toast-" + type; t.innerHTML = ""; t.append(el("span", "toast-ico", type === "error" ? "!" : type === "success" ? "✓" : "i"), el("span", "toast-msg", m)); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hidden"), 3500); };
+const confirmBox = (m, okText = "Confirmar") => new Promise((res) => {
+  const ov = el("div", "modal-overlay"), box = el("div", "modal-card");
+  const p = el("p", "modal-msg", m), acts = el("div", "modal-actions");
+  const no = el("button", "btn ghost", "Cancelar"), ok = el("button", "btn primary", okText);
+  const close = (v) => { ov.remove(); document.removeEventListener("keydown", key); res(v); };
+  const key = (e) => { if (e.key === "Escape") close(false); if (e.key === "Enter") close(true); };
+  no.onclick = () => close(false); ok.onclick = () => close(true); ov.onclick = (e) => { if (e.target === ov) close(false); };
+  acts.append(no, ok); box.append(el("h3", "", "Confirmação"), p, acts); ov.append(box); document.body.append(ov);
+  document.addEventListener("keydown", key); ok.focus();
+});
 const fmtDate = (ts) => ts ? new Date(ts).toLocaleString("pt-BR") : "";
 const avatarFallback = (n) => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><rect width='80' height='80' fill='#555'/><text x='50%' y='55%' font-size='34' fill='#fff' text-anchor='middle' dominant-baseline='middle' font-family='sans-serif'>${(n||"?")[0].toUpperCase()}</text></svg>`);
 const safeUrl = (u) => /^https?:\/\//i.test(u || "") ? u : "";
@@ -359,7 +370,7 @@ function renderLinkAdmin() {
       editingLink = id; $("linkTitulo").value = l.titulo; $("linkUrl").value = l.url;
       $("linkSubmit").textContent = "Salvar alterações"; $("linkCancel").classList.remove("hidden"); $("linkTitulo").focus();
     };
-    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir link?") && db.ref("links/" + id).remove();
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = async () => { if (await confirmBox("Excluir link?", "Excluir")) db.ref("links/" + id).remove(); };
     a.append(up, dn, ed, del); r.append(t, a); adm.append(r);
   });
   if (!items.length) adm.append(el("p", "muted", "Nenhum link encontrado."));
@@ -391,7 +402,7 @@ function renderProdAdmin() {
       editingProd = id; $("prodNome").value = p.nome; $("prodDesc").value = p.descricao || "";
       $("prodSubmit").textContent = "Salvar alterações"; $("prodCancel").classList.remove("hidden"); $("prodNome").focus();
     };
-    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir produto?") && db.ref("products/" + id).remove();
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = async () => { if (await confirmBox("Excluir produto?", "Excluir")) db.ref("products/" + id).remove(); };
     const a = el("div", "actions"); a.append(ed, del); r.append(t, a); box.append(r);
   });
 }
@@ -427,7 +438,7 @@ function renderFaqAdmin(s) {
       editingFaq = id; $("faqQ").value = f.pergunta; $("faqA").value = f.resposta;
       $("faqSubmit").textContent = "Salvar alterações"; $("faqCancel").classList.remove("hidden"); $("faqQ").focus();
     };
-    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir pergunta?") && db.ref("faq/" + id).remove();
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = async () => { if (await confirmBox("Excluir pergunta?", "Excluir")) db.ref("faq/" + id).remove(); };
     const a = el("div", "actions"); a.append(ed, del); r.append(t, a); box.append(r);
   });
 }
@@ -654,7 +665,7 @@ $("deskTake").onclick = async () => {
 };
 $("deskClose").onclick = async () => {
   if (!desk || desk.status === "closed") return;
-  if (!confirm("Encerrar este chat? O cliente só poderá abrir um novo chat para este pedido.")) return;
+  if (!await confirmBox("Encerrar este chat? O cliente só poderá abrir um novo chat para este pedido.", "Encerrar")) return;
   await setMeta(desk.uid, desk.tid, { status: "closed", unread: false, closedAt: TS });
   await sendMsg(desk.uid, desk.tid, "sys", "Atendimento encerrado. Se precisar, abra um novo chat para este pedido.");
 };
@@ -682,7 +693,7 @@ function renderUsers() {
       sel.value = allRoles[uid] === "moderator" ? "moderator" : "user";
       sel.onchange = () => db.ref("roles/" + uid).set(sel.value).then(() => toast("Função atualizada."));
       const del = el("button", "btn small danger", "Remover dados");
-      del.onclick = async () => { if (!confirm("Remover dados, pedidos e chat deste usuário?")) return;
+      del.onclick = async () => { if (!await confirmBox("Remover dados, pedidos e chat deste usuário?", "Remover")) return;
         await db.ref().update({ ["users/" + uid]: null, ["orders/" + uid]: null, ["chats/" + uid]: null, ["roles/" + uid]: null }); toast("Dados removidos."); };
       a.append(sel, del);
     } else a.append(el("span", "badge", "Admin"));
