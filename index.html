@@ -30,9 +30,9 @@
     <div class="brand"><span class="logo-dot"></span><span class="site-name">Central de Suporte</span></div>
     <h1>Entrar</h1>
     <p class="muted">Acesse sua central de atendimento.</p>
-    <form id="loginForm">
-      <label>E-mail<input type="email" id="loginEmail" required autocomplete="email"></label>
-      <label>Senha<input type="password" id="loginPass" required autocomplete="current-password"></label>
+    <form id="loginForm" autocomplete="off">
+      <label>E-mail<input type="email" id="loginEmail" required autocomplete="off"></label>
+      <label>Senha<input type="password" id="loginPass" required autocomplete="new-password"></label>
       <button class="btn primary full" type="submit">Entrar</button>
     </form>
     <button class="link" id="forgotBtn">Esqueci minha senha</button>
@@ -228,7 +228,7 @@
   </main>
 </section>
 
-<div id="loading" class="loading"><span></span></div>
+<div id="loading" class="loading"><div class="loading-box"><span></span><p>Carregando...</p></div></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>

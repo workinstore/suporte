@@ -101,8 +101,11 @@ $("goRegister").onclick = (e) => { e.preventDefault(); showView("registerView");
 $("goLogin").onclick = (e) => { e.preventDefault(); showView("loginView"); };
 $("loginForm").onsubmit = async (e) => {
   e.preventDefault();
-  try { await auth.signInWithEmailAndPassword($("loginEmail").value.trim(), $("loginPass").value); }
-  catch (err) { toast(authErr(err)); }
+  const em = $("loginEmail").value.trim(), pw = $("loginPass").value;
+  $("loginPass").value = "";
+  showLoading(true);
+  try { await auth.signInWithEmailAndPassword(em, pw); }
+  catch (err) { showLoading(false); toast(authErr(err)); }
 };
 $("forgotBtn").onclick = async () => {
   const em = $("loginEmail").value.trim();
@@ -125,16 +128,44 @@ $("registerForm").onsubmit = async (e) => {
   if (!UFS.includes(d.uf)) return toast("Selecione o estado.");
   try {
     registering = true;
+    showLoading(true);
     const cred = await auth.createUserWithEmailAndPassword(d.email, $("rPass").value);
     const uid = cred.user.uid;
     await db.ref("users/" + uid).set({ ...d, foto: "", criadoEm: TS });
     await db.ref("orders/" + uid).push({ plataforma: plat, numero: pedido, produtoId: prod, produtoNome: products[prod].nome, criadoEm: TS });
     registering = false;
-    startApp(cred.user);
+    await startApp(cred.user);
+    clearAuthFields();
+    showLoading(false);
     toast("Conta criada com sucesso!");
-  } catch (err) { registering = false; toast(authErr(err)); }
+  } catch (err) { registering = false; showLoading(false); toast(authErr(err)); }
 };
-$("logoutBtn").onclick = () => auth.signOut();
+const showLoading = (on) => $("loading").classList.toggle("hidden", !on);
+function clearAuthFields() {
+  document.querySelectorAll("#loginForm, #registerForm").forEach(f => f.reset());
+  ["loginEmail","loginPass","rPass","rPass2"].forEach(id => { if ($(id)) $(id).value = ""; });
+}
+async function wipeLocalData() {
+  try { localStorage.clear(); } catch (_) {}
+  try { sessionStorage.clear(); } catch (_) {}
+  try { if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } } catch (_) {}
+  try { if (navigator.serviceWorker) { const rs = await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r => r.unregister())); } } catch (_) {}
+  try {
+    if (indexedDB.databases) { const dbs = await indexedDB.databases(); dbs.forEach(d => d.name && indexedDB.deleteDatabase(d.name)); }
+    else ["firebaseLocalStorageDb","firebase-heartbeat-database","firebase-installations-database"].forEach(n => indexedDB.deleteDatabase(n));
+  } catch (_) {}
+  try { document.cookie.split(";").forEach(c => { const n = c.split("=")[0].trim(); if (n) document.cookie = n + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/"; }); } catch (_) {}
+}
+$("logoutBtn").onclick = async () => {
+  showLoading(true);
+  offs.forEach(f => f()); offs = [];
+  me = null; myRole = "user";
+  clearAuthFields();
+  try { await auth.signOut(); } catch (_) {}
+  try { await Promise.all(firebase.apps.map(a => a.delete())); } catch (_) {}
+  await wipeLocalData();
+  location.replace(location.pathname + "?t=" + Date.now());
+};
 
 /* ---------- sessão ---------- */
 let me = null, myRole = "user", offs = [];
@@ -142,9 +173,8 @@ const listen = (ref, ev, fn) => { ref.on(ev, fn); offs.push(() => ref.off(ev, fn
 
 auth.onAuthStateChanged(async (user) => {
   offs.forEach(f => f()); offs = [];
-  $("loading").classList.add("hidden");
-  if (!user) { me = null; showView("loginView"); return; }
-  if (!registering) startApp(user);
+  if (!user) { me = null; clearAuthFields(); showLoading(false); showView("loginView"); if (location.search) history.replaceState(null, "", location.pathname); return; }
+  if (!registering) { showLoading(true); try { await startApp(user); } finally { showLoading(false); } }
 });
 
 async function startApp(user) {
@@ -161,6 +191,7 @@ async function startApp(user) {
   listen(db.ref("users/" + user.uid), "value", s => { if (s.val()) { me = { ...me, ...s.val() }; renderMe(); } });
   renderMe();
   buildNav();
+  clearAuthFields();
   showView("appView");
 }
 
