@@ -20,7 +20,7 @@ const ADMIN_EMAIL = "admin@workinstore.org";
 const EMAIL_WHITELIST = ["gmail.com","googlemail.com","outlook.com","outlook.com.br","hotmail.com","hotmail.com.br","live.com","msn.com","yahoo.com","yahoo.com.br","icloud.com","me.com","uol.com.br","bol.com.br","terra.com.br","ig.com.br","globo.com","globomail.com","r7.com","protonmail.com","proton.me","aol.com","zoho.com","gmx.com","workinstore.org"];
 const PLATAFORMAS = ["Shopee","Mercado Livre","Facebook Marketplace"];
 const UFS = ["AC - Acre","AL - Alagoas","AP - Amapá","AM - Amazonas","BA - Bahia","CE - Ceará","DF - Distrito Federal","ES - Espírito Santo","GO - Goiás","MA - Maranhão","MT - Mato Grosso","MS - Mato Grosso do Sul","MG - Minas Gerais","PA - Pará","PB - Paraíba","PR - Paraná","PE - Pernambuco","PI - Piauí","RJ - Rio de Janeiro","RN - Rio Grande do Norte","RS - Rio Grande do Sul","RO - Rondônia","RR - Roraima","SC - Santa Catarina","SP - São Paulo","SE - Sergipe","TO - Tocantins"];
-const DEFAULT_WELCOME = "Olá! 👋 Bem-vindo(a) à nossa central de suporte. Escolha uma das dúvidas abaixo ou fale com um atendente.";
+const DEFAULT_WELCOME = "Olá! 👋 Bem-vindo(a) à nossa central de suporte. Digite sua dúvida que eu procuro a melhor resposta para você, ou fale com um atendente.";
 
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
@@ -509,7 +509,7 @@ function closeClientTicket() {
 }
 function openClientTicket(tid) {
   if (chatState.off) chatState.off();
-  chatState.tid = tid;
+  chatState.tid = tid; suggest = [];
   const box = $("chatMsgs"); box.innerHTML = "";
   $("chatTitle").textContent = orderLabel(myOrders[chatState.orderId]);
   const mref = db.ref(`chats/${me.uid}/${tid}/messages`).limitToLast(200);
@@ -536,6 +536,18 @@ async function newTicketForOrder() {
   await sendMsg(me.uid, tid, "bot", (siteSettings.welcome || DEFAULT_WELCOME) + `\n\nPedido: ${orderLabel(o)}`);
   openClientTicket(tid);
 }
+let suggest = [];
+const normTxt = (x) => (x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ");
+const STOP = new Set("para como qual quais quando onde porque pois esta este isso essa esse minha meu voce voces tenho estou com sem uma umas uns dos das nos nas que nao sim mais muito pelo pela ola oi bom boa dia tarde noite obrigado".split(" "));
+function searchFaq(text) {
+  const words = normTxt(text).split(/\s+/).filter(w => w.length > 2 && !STOP.has(w));
+  if (!words.length) return [];
+  return Object.values(faqData).map(f => {
+    const q = normTxt(f.pergunta), a = normTxt(f.resposta); let sc = 0;
+    words.forEach(w => { const r = w.length > 4 ? w.slice(0, -1) : w; if (q.includes(r)) sc += 2; if (a.includes(r)) sc += 1; });
+    return { f, sc };
+  }).filter(x => x.sc > 0).sort((x, y) => y.sc - x.sc).slice(0, 5).map(x => x.f);
+}
 function renderFaqButtons() {
   const box = $("faqBtns"); if (!box) return; box.innerHTML = "";
   if (myRole !== "user" || !chatState.orderId) return;
@@ -545,13 +557,20 @@ function renderFaqButtons() {
   }
   if (chatState.status === "bot") {
     const uid = me.uid, tid = chatState.tid;
-    Object.values(faqData).forEach(f => {
-      const b = el("button", null, f.pergunta);
-      b.onclick = async () => { await sendMsg(uid, tid, uid, f.pergunta, me.nome); setTimeout(() => sendMsg(uid, tid, "bot", f.resposta + "\n\nIsso resolveu sua dúvida? Se não, clique em \"Falar com atendente\"."), 500); };
+    if (!suggest.length) box.append(el("small", "muted", "Digite sua dúvida abaixo para ver as respostas disponíveis."));
+    suggest.forEach((f, i) => {
+      const txt = f.resposta.length > 140 ? f.resposta.slice(0, 140) + "…" : f.resposta;
+      const b = el("button", null, (i + 1) + ". " + txt);
+      b.onclick = async () => {
+        suggest = []; renderFaqButtons();
+        await sendMsg(uid, tid, uid, "Opção " + (i + 1), me.nome);
+        setTimeout(() => sendMsg(uid, tid, "bot", f.resposta + "\n\nIsso resolveu sua dúvida? Se não, digite sua dúvida com outras palavras ou clique em \"Falar com atendente\"."), 400);
+      };
       box.append(b);
     });
     const h = el("button", "human", "🙋 Falar com atendente");
     h.onclick = async () => {
+      suggest = [];
       await setMeta(uid, tid, { status: "waiting", unread: true });
       await sendMsg(uid, tid, "sys", "Você entrou na fila. Um atendente responderá em breve.");
     };
@@ -566,8 +585,12 @@ $("chatForm").onsubmit = async (e) => {
   await sendMsg(uid, tid, uid, t, me.nome);
   if (chatState.status === "open" || chatState.status === "waiting") await setMeta(uid, tid, { unread: true });
   else if (chatState.status === "bot") {
-    const hit = Object.values(faqData).find(f => t.toLowerCase().split(/\s+/).filter(w => w.length > 3).some(w => f.pergunta.toLowerCase().includes(w)));
-    setTimeout(() => sendMsg(uid, tid, "bot", hit ? hit.pergunta + "\n" + hit.resposta : "Não encontrei uma resposta automática. Escolha uma opção abaixo ou clique em \"Falar com atendente\"."), 500);
+    suggest = searchFaq(t);
+    renderFaqButtons();
+    const n = suggest.length;
+    setTimeout(() => sendMsg(uid, tid, "bot", n
+      ? "Encontrei " + n + (n > 1 ? " respostas" : " resposta") + " para o que você digitou:\n\n" + suggest.map((f, i) => (i + 1) + ". " + f.resposta).join("\n\n") + "\n\nEscolha abaixo a resposta que melhor se adequa ao seu caso."
+      : "Não encontrei uma resposta para isso. Tente escrever sua dúvida com outras palavras ou clique em \"Falar com atendente\"."), 400);
   }
 };
 
