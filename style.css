@@ -129,3 +129,29 @@ a.card{text-decoration:none;color:var(--text);transition:transform .15s}a.card:h
 .modal-msg{color:var(--muted);font-size:.92rem;line-height:1.5}
 .modal-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1.3rem}
 @keyframes fadeIn{from{opacity:0}}
+
+/* menu superior compacto (desktop e celular) */
+body[data-layout="topbar"] .sidebar{padding:.45rem 80px .45rem 1rem;gap:.8rem;flex-wrap:nowrap;min-height:0}
+body[data-layout="topbar"] .brand{font-size:.92rem;white-space:nowrap}
+body[data-layout="topbar"] .me{gap:.45rem}
+body[data-layout="topbar"] .me .avatar{width:30px;height:30px;border-width:1.5px}
+body[data-layout="topbar"] .me strong{font-size:.8rem;line-height:1.1}
+body[data-layout="topbar"] .me .badge{font-size:.65rem;padding:.05rem .4rem}
+body[data-layout="topbar"] nav{gap:.15rem;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+body[data-layout="topbar"] nav::-webkit-scrollbar{display:none}
+body[data-layout="topbar"] nav button{padding:.4rem .7rem;font-size:.84rem;border-radius:8px;white-space:nowrap;gap:.35rem}
+body[data-layout="topbar"] .sidebar>.btn{padding:.4rem .8rem;font-size:.82rem}
+@media(max-width:820px){
+ .sidebar{flex-direction:row;flex-wrap:wrap;align-items:center;padding:.5rem 70px .5rem .8rem;gap:.4rem .7rem;border-right:0;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+ .sidebar .brand{font-size:.88rem;flex:1;white-space:nowrap}
+ .sidebar .me{gap:.4rem}
+ .sidebar .me .avatar{width:28px;height:28px;border-width:1.5px}
+ .sidebar .me strong{font-size:.78rem;line-height:1.1}
+ .sidebar .me .badge{font-size:.62rem;padding:.05rem .35rem}
+ .sidebar>.btn{width:auto;padding:.35rem .7rem;font-size:.8rem}
+ nav{order:5;flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;gap:.15rem;scrollbar-width:none;margin:0 -.2rem}
+ nav::-webkit-scrollbar{display:none}
+ nav button{padding:.38rem .65rem;font-size:.8rem;border-radius:8px;white-space:nowrap;flex:none;gap:.35rem}
+ body[data-layout="topbar"] .sidebar{flex-wrap:wrap;padding:.5rem 70px .5rem .8rem}
+ body[data-layout="topbar"] nav{flex-wrap:nowrap}
+}
