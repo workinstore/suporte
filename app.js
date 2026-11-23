@@ -196,6 +196,30 @@ $("logoutBtn").onclick = async () => {
   location.replace(location.pathname + "?t=" + Date.now());
 };
 
+/* ---------- conta compacta no celular: avatar, nome e "Sair" dentro da engrenagem ---------- */
+const accountBtn = $("accountBtn"), accountMenu = $("accountMenu"), sidebarEl = document.querySelector(".sidebar");
+const mqSmall = window.matchMedia("(max-width: 820px)");
+const closeAccount = () => { accountMenu.classList.add("hidden"); accountBtn.setAttribute("aria-expanded", "false"); };
+function placeAccountParts() {
+  const meBox = $("meBox"), logout = $("logoutBtn");
+  if (mqSmall.matches) accountMenu.append(meBox, logout);
+  else { sidebarEl.insertBefore(meBox, $("nav")); sidebarEl.insertBefore(logout, accountBtn); }
+  closeAccount();
+}
+accountBtn.onclick = (e) => {
+  e.stopPropagation();
+  const closed = accountMenu.classList.toggle("hidden");
+  accountBtn.setAttribute("aria-expanded", String(!closed));
+};
+document.addEventListener("click", (e) => {
+  if (accountMenu.classList.contains("hidden")) return;
+  if (!accountMenu.contains(e.target) && !accountBtn.contains(e.target)) closeAccount();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAccount(); });
+if (mqSmall.addEventListener) mqSmall.addEventListener("change", placeAccountParts);
+else if (mqSmall.addListener) mqSmall.addListener(placeAccountParts);
+placeAccountParts();
+
 /* ---------- sessão ---------- */
 let me = null, myRole = "user", offs = [];
 const listen = (ref, ev, fn) => { ref.on(ev, fn); offs.push(() => ref.off(ev, fn)); };
