@@ -168,7 +168,9 @@
         <label>Descrição<input id="prodDesc" maxlength="200"></label>
         <button class="btn primary span2">Cadastrar produto</button>
       </form>
-      <div id="prodList" class="list"></div>
+      <input id="prodSearch" class="search" placeholder="Buscar produto por nome ou descrição...">
+      <div id="prodList" class="list" data-rerender="renderProdAdmin"></div>
+      <div id="prodPager" class="pager"></div>
     </div>
 
     <div id="tab-linksadm" class="tab hidden">
@@ -176,9 +178,12 @@
       <form id="linkForm" class="panel grid2">
         <label>Título<input id="linkTitulo" required maxlength="80"></label>
         <label>URL<input id="linkUrl" type="url" required></label>
-        <button class="btn primary span2">Adicionar link</button>
+        <button id="linkSubmit" class="btn primary">Adicionar link</button>
+        <button id="linkCancel" type="button" class="btn ghost hidden">Cancelar edição</button>
       </form>
-      <div id="linkAdmList" class="list"></div>
+      <input id="linkSearch" class="search" placeholder="Buscar link por título ou URL...">
+      <div id="linkAdmList" class="list" data-rerender="renderLinkAdmin"></div>
+      <div id="linkPager" class="pager"></div>
     </div>
 
     <div id="tab-automacao" class="tab hidden">
@@ -192,7 +197,9 @@
         <label class="span2">Resposta automática<textarea id="faqA" rows="3" required maxlength="1500"></textarea></label>
         <button class="btn primary span2">Adicionar pergunta</button>
       </form>
-      <div id="faqList" class="list"></div>
+      <input id="faqSearch" class="search" placeholder="Buscar pergunta ou resposta...">
+      <div id="faqList" class="list" data-rerender="renderFaqAdmin"></div>
+      <div id="faqPager" class="pager"></div>
     </div>
 
     <div id="tab-usuarios" class="tab hidden">
@@ -210,7 +217,8 @@
         <button class="btn primary span2">Cadastrar</button>
       </form>
       <input id="userSearch" class="search" placeholder="Buscar por nome ou e-mail...">
-      <div id="userList" class="list"></div>
+      <div id="userList" class="list" data-rerender="renderUsers"></div>
+      <div id="userPager" class="pager"></div>
     </div>
 
     <div id="tab-aparencia" class="tab hidden">

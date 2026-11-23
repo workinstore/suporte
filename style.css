@@ -110,3 +110,9 @@ a.card{text-decoration:none;color:var(--text);transition:transform .15s}a.card:h
 }
 
 .loading-box{display:flex;flex-direction:column;align-items:center;gap:12px}.loading-box span{display:block;width:38px;height:38px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}.loading-box p{margin:0;color:var(--muted,inherit);font-size:.9rem}
+
+/* paginação */
+.pager{display:flex;justify-content:center;flex-wrap:wrap;gap:.35rem;margin-top:1rem}
+.pager .btn{min-width:2.2rem}
+.pager .btn:disabled{opacity:.4;cursor:default;transform:none}
+.search{margin:1rem 0 .5rem}

@@ -38,6 +38,24 @@ const showView = (id) => { ["loginView","registerView","appView"].forEach(v => $
 const validEmail = (e) => { const m = /^[^\s@]+@([^\s@]+\.[^\s@]+)$/.exec((e||"").trim().toLowerCase()); return !!m && EMAIL_WHITELIST.includes(m[1]); };
 const authErr = (e) => ({ "auth/invalid-credential":"E-mail ou senha incorretos.","auth/wrong-password":"Senha incorreta.","auth/user-not-found":"Conta não encontrada.","auth/email-already-in-use":"Este e-mail já está cadastrado.","auth/weak-password":"Senha fraca (mínimo 6 caracteres).","auth/too-many-requests":"Muitas tentativas. Aguarde um pouco." }[e.code] || e.message);
 
+/* paginação genérica: 10 itens/página, janela de 5 páginas com setas */
+const PAGE_SIZE = 10, PAGE_WINDOW = 5, pages = {};
+function paginate(key, items, box, pagerId) {
+  const total = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  let p = Math.min(Math.max(pages[key] || 1, 1), total); pages[key] = p;
+  const pager = $(pagerId); pager.innerHTML = "";
+  if (total > 1) {
+    const go = (n) => { pages[key] = n; box.dataset.rerender && window[box.dataset.rerender](); };
+    const start = Math.floor((p - 1) / PAGE_WINDOW) * PAGE_WINDOW + 1, end = Math.min(start + PAGE_WINDOW - 1, total);
+    const prev = el("button", "btn small", "‹"); prev.disabled = p === 1; prev.onclick = () => go(p - 1); pager.append(prev);
+    for (let i = start; i <= end; i++) { const b = el("button", "btn small" + (i === p ? " primary" : ""), String(i)); b.onclick = () => go(i); pager.append(b); }
+    const next = el("button", "btn small", "›"); next.disabled = p === total; next.onclick = () => go(p + 1); pager.append(next);
+  }
+  return items.slice((p - 1) * PAGE_SIZE, p * PAGE_SIZE);
+}
+const matches = (q, ...f) => f.join(" ").toLowerCase().includes(q);
+const searchBind = (inputId, key, fn) => { $(inputId).oninput = () => { pages[key] = 1; fn(); }; };
+
 /* máscara WhatsApp (00) 00000-0000 */
 function maskPhone(input) {
   input.addEventListener("input", () => {
@@ -305,36 +323,75 @@ $("profileForm").onsubmit = async (e) => {
 };
 $("resetPassBtn").onclick = async () => { await auth.sendPasswordResetEmail(me.email); toast("Link de troca de senha enviado para " + me.email); };
 
-/* ---------- links ---------- */
-let linksData = {};
+/* ---------- links (com edição e ordem) ---------- */
+let linksData = {}, editingLink = null;
+const sortedLinks = () => Object.entries(linksData).sort((x, y) => (x[1].ordem ?? 1e12) - (y[1].ordem ?? 1e12) || (x[1].titulo || "").localeCompare(y[1].titulo || ""));
 function renderLinks(s) {
-  linksData = s.val() || {};
+  if (s) linksData = s.val() || {};
   const box = $("linksList"); box.innerHTML = "";
-  const adm = $("linkAdmList"); adm.innerHTML = "";
-  Object.entries(linksData).forEach(([id, l]) => {
+  sortedLinks().forEach(([, l]) => {
     const u = safeUrl(l.url); if (!u) return;
     const a = el("a", "card"); a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer";
     a.append(el("h4", null, l.titulo)); box.append(a);
-    const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, l.titulo));
-    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir link?") && db.ref("links/" + id).remove();
-    r.append(t, del); adm.append(r);
   });
   if (!box.children.length) box.append(el("p", "muted", "Nenhum link disponível."));
+  renderLinkAdmin();
 }
+async function moveLink(id, dir) {
+  const list = sortedLinks(), i = list.findIndex(([k]) => k === id), j = i + dir;
+  if (j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  const upd = {}; list.forEach(([k], n) => upd["links/" + k + "/ordem"] = n);
+  await db.ref().update(upd);
+}
+function renderLinkAdmin() {
+  const adm = $("linkAdmList"); if (!adm) return; adm.innerHTML = "";
+  const q = $("linkSearch").value.toLowerCase(), all = sortedLinks();
+  const items = all.filter(([, l]) => matches(q, l.titulo, l.url));
+  paginate("links", items, adm, "linkPager").forEach(([id, l]) => {
+    const pos = all.findIndex(([k]) => k === id);
+    const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, (pos + 1) + ". " + l.titulo), el("small", null, l.url));
+    const a = el("div", "actions");
+    const up = el("button", "btn small", "↑"); up.title = "Subir"; up.disabled = pos === 0; up.onclick = () => moveLink(id, -1);
+    const dn = el("button", "btn small", "↓"); dn.title = "Descer"; dn.disabled = pos === all.length - 1; dn.onclick = () => moveLink(id, 1);
+    const ed = el("button", "btn small", "Editar"); ed.onclick = () => {
+      editingLink = id; $("linkTitulo").value = l.titulo; $("linkUrl").value = l.url;
+      $("linkSubmit").textContent = "Salvar alterações"; $("linkCancel").classList.remove("hidden"); $("linkTitulo").focus();
+    };
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir link?") && db.ref("links/" + id).remove();
+    a.append(up, dn, ed, del); r.append(t, a); adm.append(r);
+  });
+  if (!items.length) adm.append(el("p", "muted", "Nenhum link encontrado."));
+}
+window.renderLinkAdmin = renderLinkAdmin;
+function resetLinkForm() { editingLink = null; $("linkForm").reset(); $("linkSubmit").textContent = "Adicionar link"; $("linkCancel").classList.add("hidden"); }
+$("linkCancel").onclick = resetLinkForm;
+searchBind("linkSearch", "links", renderLinkAdmin);
 $("linkForm").onsubmit = async (e) => {
   e.preventDefault(); const u = safeUrl($("linkUrl").value.trim()); if (!u) return toast("URL inválida.");
-  await db.ref("links").push({ titulo: $("linkTitulo").value.trim(), url: u }); e.target.reset(); toast("Link adicionado.");
+  const titulo = $("linkTitulo").value.trim();
+  if (editingLink) { await db.ref("links/" + editingLink).update({ titulo, url: u }); toast("Link atualizado."); }
+  else {
+    const max = Object.values(linksData).reduce((m, l) => Math.max(m, l.ordem ?? -1), -1);
+    await db.ref("links").push({ titulo, url: u, ordem: max + 1 }); toast("Link adicionado.");
+  }
+  resetLinkForm();
 };
 
 /* ---------- produtos (admin) ---------- */
 function renderProdAdmin() {
   const box = $("prodList"); box.innerHTML = "";
-  Object.entries(products).forEach(([id, p]) => {
+  const q = $("prodSearch").value.toLowerCase();
+  const items = Object.entries(products).filter(([, p]) => matches(q, p.nome, p.descricao || ""));
+  if (!items.length) box.append(el("p", "muted", "Nenhum produto encontrado."));
+  paginate("prod", items, box, "prodPager").forEach(([id, p]) => {
     const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, p.nome), el("small", null, p.descricao || ""));
     const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir produto?") && db.ref("products/" + id).remove();
     r.append(t, del); box.append(r);
   });
 }
+window.renderProdAdmin = renderProdAdmin;
+searchBind("prodSearch", "prod", renderProdAdmin);
 $("prodForm").onsubmit = async (e) => {
   e.preventDefault();
   await db.ref("products").push({ nome: $("prodNome").value.trim(), descricao: $("prodDesc").value.trim() }); e.target.reset(); toast("Produto cadastrado.");
@@ -343,14 +400,21 @@ $("prodForm").onsubmit = async (e) => {
 /* ---------- automação / FAQ ---------- */
 let faqData = {};
 db.ref("faq").on("value", s => { faqData = s.val() || {}; if (chatState.uid) renderFaqButtons(); });
+let faqAdmData = {};
 function renderFaqAdmin(s) {
+  if (s) faqAdmData = s.val() || {};
   const box = $("faqList"); box.innerHTML = "";
-  Object.entries(s.val() || {}).forEach(([id, f]) => {
+  const q = $("faqSearch").value.toLowerCase();
+  const items = Object.entries(faqAdmData).filter(([, f]) => matches(q, f.pergunta, f.resposta));
+  if (!items.length) box.append(el("p", "muted", "Nenhuma pergunta encontrada."));
+  paginate("faq", items, box, "faqPager").forEach(([id, f]) => {
     const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, f.pergunta), el("small", null, f.resposta));
     const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir pergunta?") && db.ref("faq/" + id).remove();
     r.append(t, del); box.append(r);
   });
 }
+window.renderFaqAdmin = renderFaqAdmin;
+searchBind("faqSearch", "faq", renderFaqAdmin);
 $("faqForm").onsubmit = async (e) => {
   e.preventDefault(); await db.ref("faq").push({ pergunta: $("faqQ").value.trim(), resposta: $("faqA").value.trim() }); e.target.reset(); toast("Pergunta adicionada.");
 };
@@ -558,7 +622,9 @@ let allUsers = {}, allRoles = {};
 function renderUsers() {
   const box = $("userList"); if (!box) return; box.innerHTML = "";
   const q = $("userSearch").value.toLowerCase();
-  Object.entries(allUsers).filter(([, u]) => ((u.nome + " " + u.sobrenome + " " + u.email).toLowerCase().includes(q))).forEach(([uid, u]) => {
+  const items = Object.entries(allUsers).filter(([, u]) => matches(q, u.nome, u.sobrenome, u.email));
+  if (!items.length) box.append(el("p", "muted", "Nenhum usuário encontrado."));
+  paginate("users", items, box, "userPager").forEach(([uid, u]) => {
     const r = el("div", "row"); const t = el("div");
     t.append(el("strong", null, u.nome + " " + u.sobrenome), el("small", null, `${u.email} • ${u.whatsapp} • ${u.cidade}/${(u.uf || "").slice(0, 2)}`));
     const a = el("div", "actions");
@@ -574,7 +640,8 @@ function renderUsers() {
     r.append(t, a); box.append(r);
   });
 }
-$("userSearch").oninput = renderUsers;
+window.renderUsers = renderUsers;
+searchBind("userSearch", "users", renderUsers);
 // cria conta usando uma instância secundária, para o admin não ser deslogado
 $("staffForm").onsubmit = async (e) => {
   e.preventDefault();
