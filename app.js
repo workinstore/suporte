@@ -51,7 +51,7 @@ function maskPhone(input) {
 }
 const phoneOk = (v) => /^\(\d{2}\) \d{4,5}-\d{4}$/.test(v);
 ["rWhats","pWhats","sWhats"].forEach(id => maskPhone($(id)));
-$("rUF").innerHTML = '<option value="">Selecione...</option>' + UFS.map(u => `<option value="${u}">${u}</option>`).join("");
+["rUF","sUF"].forEach(id => $(id).innerHTML = '<option value="">Selecione...</option>' + UFS.map(u => `<option value="${u}">${u}</option>`).join(""));
 
 /* ---------- temas ---------- */
 let siteSettings = {};
@@ -198,7 +198,7 @@ function openTab(id) {
 
 function initData() {
   listen(db.ref("links"), "value", renderLinks);
-  if (myRole === "user") listen(db.ref("orders/" + me.uid), "value", renderOrders);
+  if (myRole === "user") listen(db.ref("orders/" + me.uid), "value", s => { myOrders = s.val() || {}; renderOrders(s); renderSupportOrders(); });
   if (myRole !== "user") listen(db.ref("chats"), "value", renderTickets);
   if (myRole === "admin") {
     listen(db.ref("faq"), "value", renderFaqAdmin);
@@ -223,6 +223,8 @@ function renderOrders(s) {
   ids.forEach(id => {
     const c = el("div", "card"); c.append(el("h4", null, o[id].produtoNome));
     c.append(el("p", null, o[id].plataforma + " • Pedido " + o[id].numero)); c.append(el("p", null, fmtDate(o[id].criadoEm)));
+    const sb = el("button", "btn small", "💬 Suporte deste pedido");
+    sb.onclick = () => { openTab("suporte"); selectOrder(id); }; c.append(sb);
     box.append(c);
   });
 }
@@ -281,8 +283,8 @@ function renderLinks(s) {
   Object.entries(linksData).forEach(([id, l]) => {
     const u = safeUrl(l.url); if (!u) return;
     const a = el("a", "card"); a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer";
-    a.append(el("h4", null, l.titulo), el("p", null, u)); box.append(a);
-    const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, l.titulo), el("small", null, u));
+    a.append(el("h4", null, l.titulo)); box.append(a);
+    const r = el("div", "row"); const t = el("div"); t.append(el("strong", null, l.titulo));
     const del = el("button", "btn small danger", "Excluir"); del.onclick = () => confirm("Excluir link?") && db.ref("links/" + id).remove();
     r.append(t, del); adm.append(r);
   });
@@ -331,115 +333,193 @@ $("lookForm").onsubmit = async (e) => {
   toast("Aparência salva para todos os usuários.");
 };
 
-/* ---------- chat do cliente ---------- */
-const chatState = { uid: null, status: "bot" };
+/* ---------- chat do cliente (um chat por pedido) ----------
+   Estrutura: chats/{uid}/{ticketId}/meta  e  chats/{uid}/{ticketId}/messages
+   meta: { orderId, pedido, produto, plataforma, status, nome, email, whatsapp, ... } */
+const chatState = { uid: null, tid: null, orderId: null, status: "bot", off: null };
 const STATUS_TXT = { bot: "Assistente virtual", waiting: "Aguardando atendente", open: "Em atendimento", closed: "Encerrado" };
+const LEGACY = ["meta", "messages"];
 function renderMsg(box, m, mine) {
-  if (m.from === "sys") { box.append(el("div", "msg sys", m.text)); return; }
+  if (m.from === "sys") { box.append(el("div", "msg sys", m.text)); box.scrollTop = box.scrollHeight; return; }
   const d = el("div", "msg" + (mine ? " me" : "") + (m.from === "bot" ? " bot" : ""));
   d.append(el("span", "who", m.from === "bot" ? "🤖 Assistente" : (m.nome || "")), document.createTextNode(m.text));
   box.append(d); box.scrollTop = box.scrollHeight;
 }
-const sendMsg = (uid, from, text, nome) => db.ref(`chats/${uid}/messages`).push({ from, text: text.slice(0, 2000), nome: nome || "", ts: TS });
-const setMeta = (uid, upd) => db.ref(`chats/${uid}/meta`).update({ ...upd, updatedAt: TS });
+const sendMsg = (uid, tid, from, text, nome) => db.ref(`chats/${uid}/${tid}/messages`).push({ from, text: text.slice(0, 2000), nome: nome || "", ts: TS });
+const setMeta = (uid, tid, upd) => db.ref(`chats/${uid}/${tid}/meta`).update({ ...upd, updatedAt: TS });
+const orderLabel = (o) => `${o.produtoNome} — ${o.plataforma} #${o.numero}`;
 
-async function startClientChat() {
-  if (chatState.uid === me.uid) return;
+let myOrders = {}, myTickets = {};
+function startClientChat() {
+  if (chatState.uid === me.uid) { renderSupportOrders(); return; }
   chatState.uid = me.uid;
+  listen(db.ref("chats/" + me.uid), "value", s => { myTickets = s.val() || {}; renderSupportOrders(); });
+}
+function ticketsOfOrder(orderId) {
+  return Object.entries(myTickets).filter(([id, t]) => !LEGACY.includes(id) && t && t.meta && t.meta.orderId === orderId)
+    .sort((a, b) => (a[1].meta.createdAt || 0) - (b[1].meta.createdAt || 0));
+}
+function renderSupportOrders() {
+  const box = $("supOrders"); if (!box) return; box.innerHTML = "";
+  const ids = Object.keys(myOrders).sort((a, b) => (myOrders[b].criadoEm || 0) - (myOrders[a].criadoEm || 0));
+  if (!ids.length) box.append(el("p", "muted", "Você ainda não tem pedidos. Cadastre um em \"Meus pedidos\"."));
+  ids.forEach(id => {
+    const ts = ticketsOfOrder(id); const last = ts[ts.length - 1];
+    const st = last ? last[1].meta.status : null;
+    const b = el("button", "ticket" + (id === chatState.orderId ? " sel" : "") + (st === "waiting" ? " waiting" : ""));
+    b.append(el("strong", null, myOrders[id].produtoNome), el("small", null, myOrders[id].plataforma + " • Pedido " + myOrders[id].numero),
+      el("small", null, last ? STATUS_TXT[st] + " • " + ts.length + " chat(s)" : "Sem chat aberto"));
+    b.onclick = () => selectOrder(id); box.append(b);
+  });
+  if (chatState.orderId) renderOrderHistory();
+}
+function selectOrder(orderId) {
+  chatState.orderId = orderId;
+  const ts = ticketsOfOrder(orderId); const last = ts[ts.length - 1];
+  renderSupportOrders();
+  if (last) openClientTicket(last[0]); else { closeClientTicket(); $("chatTitle").textContent = orderLabel(myOrders[orderId]); renderFaqButtons(); }
+}
+function renderOrderHistory() {
+  const box = $("chatHistory"); box.innerHTML = "";
+  const ts = ticketsOfOrder(chatState.orderId);
+  if (ts.length < 2) return;
+  box.append(el("span", "muted", "Chats deste pedido: "));
+  ts.forEach(([tid, t], i) => { const b = el("button", "btn small" + (tid === chatState.tid ? " primary" : " ghost"), "#" + (i + 1) + " " + (t.meta.status === "closed" ? "(encerrado)" : "")); b.onclick = () => openClientTicket(tid); box.append(b); });
+}
+function closeClientTicket() {
+  if (chatState.off) chatState.off(); chatState.off = null; chatState.tid = null; chatState.status = null;
+  $("chatMsgs").innerHTML = ""; $("chatStatus").textContent = "Nenhum chat"; $("chatHistory").innerHTML = "";
+  $("chatText").disabled = true;
+}
+function openClientTicket(tid) {
+  if (chatState.off) chatState.off();
+  chatState.tid = tid;
   const box = $("chatMsgs"); box.innerHTML = "";
-  const metaSnap = await db.ref(`chats/${me.uid}/meta`).get();
-  if (!metaSnap.exists()) {
-    await setMeta(me.uid, { status: "bot", nome: me.nome + " " + me.sobrenome, email: me.email, whatsapp: me.whatsapp });
-    await sendMsg(me.uid, "bot", siteSettings.welcome || DEFAULT_WELCOME);
-  }
-  listen(db.ref(`chats/${me.uid}/messages`).limitToLast(200), "child_added", s => renderMsg(box, s.val(), s.val().from === me.uid));
-  listen(db.ref(`chats/${me.uid}/meta`), "value", s => {
+  $("chatTitle").textContent = orderLabel(myOrders[chatState.orderId]);
+  const mref = db.ref(`chats/${me.uid}/${tid}/messages`).limitToLast(200);
+  const mfn = s => renderMsg(box, s.val(), s.val().from === me.uid);
+  const metaRef = db.ref(`chats/${me.uid}/${tid}/meta`);
+  const metaFn = s => {
+    if (chatState.tid !== tid) return;
     chatState.status = (s.val() || {}).status || "bot";
     $("chatStatus").textContent = STATUS_TXT[chatState.status];
-    renderFaqButtons();
-  });
+    $("chatText").disabled = chatState.status === "closed";
+    $("chatText").placeholder = chatState.status === "closed" ? "Chat encerrado. Abra um novo chat para este pedido." : "Digite sua mensagem...";
+    renderFaqButtons(); renderOrderHistory();
+  };
+  mref.on("child_added", mfn); metaRef.on("value", metaFn);
+  chatState.off = () => { mref.off("child_added", mfn); metaRef.off("value", metaFn); };
+}
+async function newTicketForOrder() {
+  const o = myOrders[chatState.orderId]; if (!o) return;
+  const open = ticketsOfOrder(chatState.orderId).find(([, t]) => t.meta.status !== "closed");
+  if (open) return openClientTicket(open[0]);
+  const tid = db.ref("chats/" + me.uid).push().key;
+  await setMeta(me.uid, tid, { status: "bot", orderId: chatState.orderId, pedido: o.numero, produto: o.produtoNome, plataforma: o.plataforma,
+    nome: me.nome + " " + me.sobrenome, email: me.email, whatsapp: me.whatsapp, createdAt: TS });
+  await sendMsg(me.uid, tid, "bot", (siteSettings.welcome || DEFAULT_WELCOME) + `\n\nPedido: ${orderLabel(o)}`);
+  openClientTicket(tid);
 }
 function renderFaqButtons() {
-  const box = $("faqBtns"); box.innerHTML = "";
-  if (myRole !== "user") return;
-  if (chatState.status === "bot" || chatState.status === "closed") {
+  const box = $("faqBtns"); if (!box) return; box.innerHTML = "";
+  if (myRole !== "user" || !chatState.orderId) return;
+  if (!chatState.tid || chatState.status === "closed") {
+    const n = el("button", "human", chatState.tid ? "➕ Abrir novo chat para este pedido" : "💬 Iniciar chat sobre este pedido");
+    n.onclick = newTicketForOrder; box.append(n); return;
+  }
+  if (chatState.status === "bot") {
+    const uid = me.uid, tid = chatState.tid;
     Object.values(faqData).forEach(f => {
       const b = el("button", null, f.pergunta);
-      b.onclick = async () => { await sendMsg(me.uid, me.uid, f.pergunta, me.nome); setTimeout(() => sendMsg(me.uid, "bot", f.resposta + "\n\nIsso resolveu sua dúvida? Se não, clique em \"Falar com atendente\"."), 500); };
+      b.onclick = async () => { await sendMsg(uid, tid, uid, f.pergunta, me.nome); setTimeout(() => sendMsg(uid, tid, "bot", f.resposta + "\n\nIsso resolveu sua dúvida? Se não, clique em \"Falar com atendente\"."), 500); };
       box.append(b);
     });
     const h = el("button", "human", "🙋 Falar com atendente");
     h.onclick = async () => {
-      await setMeta(me.uid, { status: "waiting", nome: me.nome + " " + me.sobrenome, email: me.email, whatsapp: me.whatsapp, unread: true });
-      await sendMsg(me.uid, "sys", "Você entrou na fila. Um atendente responderá em breve.");
+      await setMeta(uid, tid, { status: "waiting", unread: true });
+      await sendMsg(uid, tid, "sys", "Você entrou na fila. Um atendente responderá em breve.");
     };
     box.append(h);
   }
 }
 $("chatForm").onsubmit = async (e) => {
   e.preventDefault(); const t = $("chatText").value.trim(); if (!t) return;
+  if (!chatState.tid || chatState.status === "closed") return toast("Abra um chat para este pedido.");
+  const uid = me.uid, tid = chatState.tid;
   $("chatText").value = "";
-  await sendMsg(me.uid, me.uid, t, me.nome);
-  if (chatState.status === "open" || chatState.status === "waiting") await setMeta(me.uid, { unread: true });
-  else if (chatState.status === "bot" || chatState.status === "closed") {
+  await sendMsg(uid, tid, uid, t, me.nome);
+  if (chatState.status === "open" || chatState.status === "waiting") await setMeta(uid, tid, { unread: true });
+  else if (chatState.status === "bot") {
     const hit = Object.values(faqData).find(f => t.toLowerCase().split(/\s+/).filter(w => w.length > 3).some(w => f.pergunta.toLowerCase().includes(w)));
-    setTimeout(() => sendMsg(me.uid, "bot", hit ? hit.pergunta + "\n" + hit.resposta : "Não encontrei uma resposta automática. Escolha uma opção abaixo ou clique em \"Falar com atendente\"."), 500);
+    setTimeout(() => sendMsg(uid, tid, "bot", hit ? hit.pergunta + "\n" + hit.resposta : "Não encontrei uma resposta automática. Escolha uma opção abaixo ou clique em \"Falar com atendente\"."), 500);
   }
 };
 
 /* ---------- mesa de atendimento (admin/moderador) ---------- */
-let deskUid = null, deskOff = null, lastWaiting = 0;
+let desk = null, deskOff = null, lastWaiting = 0;
 function renderTickets(s) {
-  const chats = s.val() || {};
+  const all = s.val() || {};
   const list = $("ticketList"); list.innerHTML = "";
   const order = { waiting: 0, open: 1, bot: 2, closed: 3 };
-  const ids = Object.keys(chats).filter(id => chats[id].meta).sort((a, b) => (order[chats[a].meta.status] - order[chats[b].meta.status]) || (chats[b].meta.updatedAt - chats[a].meta.updatedAt));
-  const waiting = ids.filter(id => chats[id].meta.status === "waiting" || (chats[id].meta.status === "open" && chats[id].meta.unread)).length;
+  const items = [];
+  Object.entries(all).forEach(([uid, tks]) => Object.entries(tks || {}).forEach(([tid, t]) => {
+    if (!LEGACY.includes(tid) && t && t.meta) items.push({ uid, tid, m: t.meta });
+  }));
+  const q = ($("ticketSearch").value || "").toLowerCase();
+  const filt = items.filter(x => ((x.m.nome || "") + " " + (x.m.pedido || "") + " " + (x.m.produto || "") + " " + (x.m.email || "")).toLowerCase().includes(q));
+  filt.sort((a, b) => ((order[a.m.status] ?? 9) - (order[b.m.status] ?? 9)) || ((b.m.updatedAt || 0) - (a.m.updatedAt || 0)));
+  const waiting = items.filter(x => x.m.status === "waiting" || (x.m.status === "open" && x.m.unread)).length;
   const badge = $("notifBadge");
   if (badge) { badge.textContent = waiting; badge.classList.toggle("hidden", !waiting); }
   if (waiting > lastWaiting) { toast("🔔 Novo chamado aguardando atendimento!"); try { new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=").play(); } catch (_) {} }
   lastWaiting = waiting;
-  if (!ids.length) list.append(el("p", "muted", "Nenhuma conversa."));
-  ids.forEach(id => {
-    const m = chats[id].meta;
-    const b = el("button", "ticket" + (m.status === "waiting" ? " waiting" : "") + (id === deskUid ? " sel" : ""));
-    b.append(el("strong", null, m.nome || id), el("small", null, STATUS_TXT[m.status] + (m.unread ? " • nova mensagem" : "") + (m.agentName ? " • " + m.agentName : "")), el("small", null, fmtDate(m.updatedAt)));
-    b.onclick = () => openDesk(id, m); list.append(b);
+  if (!filt.length) list.append(el("p", "muted", "Nenhuma conversa."));
+  filt.forEach(x => {
+    const m = x.m, sel = desk && desk.uid === x.uid && desk.tid === x.tid;
+    const b = el("button", "ticket" + (m.status === "waiting" ? " waiting" : "") + (sel ? " sel" : ""));
+    b.append(el("strong", null, m.nome || x.uid),
+      el("small", "tk-order", "📦 " + (m.produto || "?") + " • " + (m.plataforma || "") + " #" + (m.pedido || "?")),
+      el("small", null, STATUS_TXT[m.status] + (m.unread ? " • nova mensagem" : "") + (m.agentName ? " • " + m.agentName : "")),
+      el("small", null, fmtDate(m.updatedAt)));
+    b.onclick = () => openDesk(x.uid, x.tid, m); list.append(b);
   });
-  if (deskUid && chats[deskUid]) updateDeskInfo(chats[deskUid].meta);
+  if (desk && all[desk.uid] && all[desk.uid][desk.tid]) updateDeskInfo(all[desk.uid][desk.tid].meta);
 }
+$("ticketSearch").oninput = () => db.ref("chats").get().then(renderTickets);
 function updateDeskInfo(m) {
+  desk.status = m.status;
   $("deskTitle").textContent = (m.nome || "") + " — " + STATUS_TXT[m.status];
-  $("deskInfo").textContent = `${m.email || ""} • WhatsApp ${m.whatsapp || "-"}`;
+  $("deskInfo").textContent = `📦 Pedido ${m.plataforma || ""} #${m.pedido || "?"} • Produto: ${m.produto || "?"} • ${m.email || ""} • WhatsApp ${m.whatsapp || "-"}`;
+  $("deskText").disabled = m.status === "closed";
+  $("deskText").placeholder = m.status === "closed" ? "Chat encerrado — o cliente precisa abrir um novo chat." : "Responder...";
 }
-async function openDesk(uid, m) {
+function openDesk(uid, tid, m) {
   if (deskOff) deskOff();
-  deskUid = uid; updateDeskInfo(m);
+  desk = { uid, tid, status: m.status }; updateDeskInfo(m);
   const box = $("deskMsgs"); box.innerHTML = "";
-  const ref = db.ref(`chats/${uid}/messages`).limitToLast(300);
+  const ref = db.ref(`chats/${uid}/${tid}/messages`).limitToLast(300);
   const fn = s => renderMsg(box, s.val(), s.val().from === me.uid);
   ref.on("child_added", fn); deskOff = () => ref.off("child_added", fn);
-  if (m.unread && m.status === "open") setMeta(uid, { unread: false });
-  // pedidos do cliente
-  const o = (await db.ref("orders/" + uid).get()).val() || {};
-  const ped = Object.values(o).map(x => `${x.produtoNome} (${x.plataforma} #${x.numero})`).join(" | ");
-  if (ped) $("deskInfo").textContent += " • Pedidos: " + ped;
+  if (m.unread && m.status === "open") setMeta(uid, tid, { unread: false });
+  document.querySelectorAll("#ticketList .ticket").forEach(b => b.classList.remove("sel"));
 }
 $("deskTake").onclick = async () => {
-  if (!deskUid) return;
-  await setMeta(deskUid, { status: "open", unread: false, agent: me.uid, agentName: me.nome });
-  await sendMsg(deskUid, "sys", `${me.nome} entrou no atendimento.`);
+  if (!desk) return; if (desk.status === "closed") return toast("Este chat já foi encerrado.");
+  await setMeta(desk.uid, desk.tid, { status: "open", unread: false, agent: me.uid, agentName: me.nome });
+  await sendMsg(desk.uid, desk.tid, "sys", `${me.nome} entrou no atendimento.`);
 };
 $("deskClose").onclick = async () => {
-  if (!deskUid) return;
-  await setMeta(deskUid, { status: "closed", unread: false });
-  await sendMsg(deskUid, "sys", "Atendimento encerrado. Se precisar, é só chamar novamente.");
+  if (!desk || desk.status === "closed") return;
+  if (!confirm("Encerrar este chat? O cliente só poderá abrir um novo chat para este pedido.")) return;
+  await setMeta(desk.uid, desk.tid, { status: "closed", unread: false, closedAt: TS });
+  await sendMsg(desk.uid, desk.tid, "sys", "Atendimento encerrado. Se precisar, abra um novo chat para este pedido.");
 };
 $("deskForm").onsubmit = async (e) => {
-  e.preventDefault(); const t = $("deskText").value.trim(); if (!t || !deskUid) return;
+  e.preventDefault(); const t = $("deskText").value.trim(); if (!t || !desk) return;
+  if (desk.status === "closed") return toast("Chat encerrado.");
   $("deskText").value = "";
-  await sendMsg(deskUid, me.uid, t, me.nome + (myRole === "admin" ? " (Admin)" : " (Suporte)"));
-  await setMeta(deskUid, { status: "open", unread: false, agent: me.uid, agentName: me.nome });
+  await sendMsg(desk.uid, desk.tid, me.uid, t, me.nome + (myRole === "admin" ? " (Admin)" : " (Suporte)"));
+  await setMeta(desk.uid, desk.tid, { status: "open", unread: false, agent: me.uid, agentName: me.nome });
 };
 
 /* ---------- usuários (admin) ---------- */
@@ -470,11 +550,14 @@ $("staffForm").onsubmit = async (e) => {
   const email = $("sEmail").value.trim().toLowerCase();
   if (!validEmail(email)) return toast("E-mail fora da lista de provedores aceitos.");
   if (!phoneOk($("sWhats").value)) return toast("WhatsApp inválido.");
+  const cidade = $("sCidade").value.trim(), uf = $("sUF").value;
+  if (!cidade) return toast("Informe a cidade.");
+  if (!UFS.includes(uf)) return toast("Selecione o estado.");
   const sec = firebase.apps.find(a => a.name === "secondary") || firebase.initializeApp(firebaseConfig, "secondary");
   try {
     const cred = await sec.auth().createUserWithEmailAndPassword(email, $("sPass").value);
     const uid = cred.user.uid; await sec.auth().signOut();
-    await db.ref("users/" + uid).set({ nome: $("sNome").value.trim(), sobrenome: $("sSobrenome").value.trim(), email, whatsapp: $("sWhats").value, cidade: "-", uf: "SP - São Paulo", foto: "", criadoEm: TS });
+    await db.ref("users/" + uid).set({ nome: $("sNome").value.trim(), sobrenome: $("sSobrenome").value.trim(), email, whatsapp: $("sWhats").value, cidade, uf, foto: "", criadoEm: TS });
     await db.ref("roles/" + uid).set($("sRole").value);
     e.target.reset(); toast("Conta criada!");
   } catch (err) { toast(authErr(err)); }

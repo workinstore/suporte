@@ -92,6 +92,10 @@ a.card{text-decoration:none;color:var(--text);transition:transform .15s}a.card:h
 .ticket{text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.75rem;cursor:pointer;color:var(--text);font:inherit}
 .ticket.sel{border-color:var(--accent)}.ticket small{display:block;color:var(--muted);font-size:.75rem}
 .ticket.waiting{border-left:4px solid #ff4d5e}
+.chat-history{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;padding:0 1.1rem;font-size:.8rem}.chat-history:not(:empty){padding:.5rem 1.1rem;border-bottom:1px solid var(--line)}
+.ticket-col{display:flex;flex-direction:column;gap:.5rem}.ticket-col .search{margin:0}
+.ticket small.tk-order{color:var(--accent)}
+.card .btn.small{margin-top:.6rem}
 .desk-info{padding:.5rem 1.1rem;font-size:.8rem;border-bottom:1px solid var(--line)}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--accent);padding:.8rem 1.2rem;border-radius:10px;z-index:60;box-shadow:0 10px 30px -10px #000;max-width:90vw}
 .loading{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:70}

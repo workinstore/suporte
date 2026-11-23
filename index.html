@@ -118,14 +118,19 @@
 
     <div id="tab-suporte" class="tab hidden">
       <h2>Suporte</h2>
-      <div class="chat">
-        <div class="chat-head"><span>Atendimento</span><span id="chatStatus" class="badge"></span></div>
-        <div id="chatMsgs" class="chat-msgs"></div>
-        <div id="faqBtns" class="faq-btns"></div>
-        <form id="chatForm" class="chat-input">
-          <input id="chatText" placeholder="Digite sua mensagem..." maxlength="2000" autocomplete="off">
-          <button class="btn primary">Enviar</button>
-        </form>
+      <p class="muted">Escolha o pedido sobre o qual precisa de ajuda. Cada pedido tem seu próprio chat.</p>
+      <div class="desk">
+        <div id="supOrders" class="ticket-list"></div>
+        <div class="chat">
+          <div class="chat-head"><span id="chatTitle">Selecione um pedido</span><span id="chatStatus" class="badge"></span></div>
+          <div id="chatHistory" class="chat-history"></div>
+          <div id="chatMsgs" class="chat-msgs"></div>
+          <div id="faqBtns" class="faq-btns"></div>
+          <form id="chatForm" class="chat-input">
+            <input id="chatText" placeholder="Digite sua mensagem..." maxlength="2000" autocomplete="off" disabled>
+            <button class="btn primary">Enviar</button>
+          </form>
+        </div>
       </div>
     </div>
 
@@ -138,7 +143,10 @@
     <div id="tab-chamados" class="tab hidden">
       <h2>Chamados</h2>
       <div class="desk">
-        <div id="ticketList" class="ticket-list"></div>
+        <div class="ticket-col">
+          <input id="ticketSearch" class="search" placeholder="Buscar cliente, pedido ou produto...">
+          <div id="ticketList" class="ticket-list"></div>
+        </div>
         <div class="chat">
           <div class="chat-head"><span id="deskTitle">Selecione um chamado</span>
             <span><button class="btn small" id="deskTake">Atender</button> <button class="btn small ghost" id="deskClose">Encerrar</button></span></div>
@@ -196,6 +204,8 @@
         <label>E-mail<input id="sEmail" type="email" required></label>
         <label>Senha provisória<input id="sPass" required minlength="6"></label>
         <label>WhatsApp<input id="sWhats" required inputmode="numeric"></label>
+        <label>Cidade<input id="sCidade" required maxlength="60"></label>
+        <label>Estado<select id="sUF" required></select></label>
         <label>Função<select id="sRole"><option value="moderator">Moderador</option><option value="user">Usuário</option></select></label>
         <button class="btn primary span2">Cadastrar</button>
       </form>
