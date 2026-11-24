@@ -181,6 +181,23 @@
       <div id="prodPager" class="pager"></div>
     </div>
 
+    <div id="tab-gerar" class="tab hidden">
+      <h2>Gerar Números</h2>
+      <form id="genForm" class="panel grid2">
+        <label>Nome do cliente<input id="gNome" required maxlength="80"></label>
+        <label>WhatsApp<input id="gWhats" required placeholder="(11) 91234-5678" inputmode="numeric"></label>
+        <label>Endereço<input id="gEnd" required maxlength="120"></label>
+        <label>Número<input id="gNum" required maxlength="10" inputmode="numeric"></label>
+        <label>Bairro<input id="gBairro" required maxlength="60"></label>
+        <label>Cidade<input id="gCidade" required maxlength="60"></label>
+        <div class="span2 actions"><button id="genSubmit" class="btn primary">Gerar</button>
+        <button id="genCancel" type="button" class="btn ghost hidden">Cancelar edição</button></div>
+      </form>
+      <input id="genSearch" class="search" placeholder="Buscar por número, cliente, cidade ou WhatsApp...">
+      <div id="genList" class="list" data-rerender="renderGenerated"></div>
+      <div id="genPager" class="pager"></div>
+    </div>
+
     <div id="tab-linksadm" class="tab hidden">
       <h2>Gerenciar links</h2>
       <form id="linkForm" class="panel grid2">

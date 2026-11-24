@@ -262,7 +262,7 @@ function renderMe() {
 const TABS = {
   user: [["pedidos","Meus pedidos"],["suporte","Suporte"],["links","Links úteis"],["perfil","Perfil"]],
   moderator: [["chamados","Chamados"],["links","Links úteis"],["perfil","Perfil"]],
-  admin: [["chamados","Chamados"],["usuarios","Usuários"],["produtos","Produtos"],["automacao","Automação"],["linksadm","Links"],["aparencia","Aparência"],["perfil","Perfil"]]
+  admin: [["chamados","Chamados"],["usuarios","Usuários"],["produtos","Produtos"],["gerar","Gerar Números"],["automacao","Automação"],["linksadm","Links"],["aparencia","Aparência"],["perfil","Perfil"]]
 };
 function buildNav() {
   const nav = $("nav"); nav.innerHTML = "";
@@ -289,6 +289,7 @@ function initData() {
     listen(db.ref("faq"), "value", renderFaqAdmin);
     listen(db.ref("users"), "value", s => { allUsers = s.val() || {}; renderUsers(); });
     listen(db.ref("roles"), "value", s => { allRoles = s.val() || {}; renderUsers(); });
+    listen(db.ref("generated"), "value", s => { generated = s.val() || {}; renderGenerated(); });
     $("welcomeMsg").value = siteSettings.welcome || DEFAULT_WELCOME;
     $("lkNome").value = siteSettings.siteName || "Central de Suporte";
     $("lkTema").value = siteSettings.defaultTheme || "cyan";
@@ -441,6 +442,64 @@ $("prodForm").onsubmit = async (e) => {
   if (editingProd) { await db.ref("products/" + editingProd).update(data); toast("Produto atualizado."); }
   else { await db.ref("products").push(data); toast("Produto cadastrado."); }
   resetProdForm();
+};
+
+
+/* ---------- gerar números (10 dígitos, únicos) ---------- */
+let generated = {}, editingGen = null;
+const SUPORTE_URL = "https://www.workinstore.org/suporte";
+const genText = (n) => `Este é o número do seu pedido ${n}. Para suporte remoto e pós-venda, acesse nosso suporte neste site e cadastre o número do seu pedido ${SUPORTE_URL}`;
+const rand10 = () => { const a = new Uint32Array(2); crypto.getRandomValues(a); return String(1000000000 + ((a[0] * 4294967296 + a[1]) % 9000000000)); };
+/* reserva o número com transação: só grava se ainda não existir (nunca repete) */
+async function reserveNumber(data) {
+  for (let i = 0; i < 20; i++) {
+    const n = rand10();
+    const r = await db.ref("generated/" + n).transaction(cur => cur === null ? { ...data, numero: n, criadoEm: Date.now() } : undefined);
+    if (r.committed) return n;
+  }
+  throw new Error("Não foi possível gerar um número único. Tente novamente.");
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); }
+  catch (_) { const ta = el("textarea"); ta.value = t; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+}
+function renderGenerated() {
+  const box = $("genList"); if (!box) return; box.innerHTML = "";
+  const q = $("genSearch").value.toLowerCase();
+  const items = Object.entries(generated)
+    .filter(([n, g]) => matches(q, n, g.nome, g.cidade, g.bairro, g.endereco, g.whatsapp, (g.whatsapp || "").replace(/\D/g, "")))
+    .sort((a, b) => (b[1].criadoEm || 0) - (a[1].criadoEm || 0));
+  if (!items.length) box.append(el("p", "muted", "Nenhum número gerado."));
+  paginate("gen", items, box, "genPager").forEach(([n, g]) => {
+    const r = el("div", "row"); const t = el("div");
+    t.append(el("strong", null, n + " — " + g.nome),
+      el("small", null, `${g.endereco}, ${g.numeroEnd} — ${g.bairro} — ${g.cidade} · ${g.whatsapp} · ${fmtDate(g.criadoEm)}`));
+    const cp = el("button", "btn small primary", "Copiar"); cp.onclick = async () => { await copyText(genText(n)); toast("Texto copiado!"); };
+    const ed = el("button", "btn small", "Editar"); ed.onclick = () => {
+      editingGen = n; $("gNome").value = g.nome; $("gWhats").value = g.whatsapp; $("gEnd").value = g.endereco;
+      $("gNum").value = g.numeroEnd; $("gBairro").value = g.bairro; $("gCidade").value = g.cidade;
+      $("genSubmit").textContent = "Salvar alterações"; $("genCancel").classList.remove("hidden"); $("gNome").focus();
+    };
+    const del = el("button", "btn small danger", "Excluir"); del.onclick = async () => { if (await confirmBox("Excluir número " + n + "?", "Excluir")) db.ref("generated/" + n).remove(); };
+    const a = el("div", "actions"); a.append(cp, ed, del); r.append(t, a); box.append(r);
+  });
+}
+window.renderGenerated = renderGenerated;
+searchBind("genSearch", "gen", renderGenerated);
+maskPhone($("gWhats"));
+$("gNum").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, ""); });
+function resetGenForm() { editingGen = null; $("genForm").reset(); $("genSubmit").textContent = "Gerar"; $("genCancel").classList.add("hidden"); }
+$("genCancel").onclick = resetGenForm;
+$("genForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const data = { nome: $("gNome").value.trim(), whatsapp: $("gWhats").value.trim(), endereco: $("gEnd").value.trim(),
+    numeroEnd: $("gNum").value.trim(), bairro: $("gBairro").value.trim(), cidade: $("gCidade").value.trim() };
+  if ($("gWhats").value.replace(/\D/g, "").length < 10) return toast("WhatsApp inválido.");
+  try {
+    if (editingGen) { await db.ref("generated/" + editingGen).update(data); toast("Dados atualizados."); }
+    else { const n = await reserveNumber(data); pages.gen = 1; toast("Número gerado: " + n); }
+    resetGenForm();
+  } catch (err) { toast("Erro: " + err.message); }
 };
 
 /* ---------- automação / FAQ ---------- */
