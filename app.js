@@ -237,6 +237,7 @@ async function startApp(user) {
   if (isAdmin) role = "admin";
   else { const r = await db.ref("roles/" + user.uid).get(); if (r.val() === "moderator") role = "moderator"; }
   myRole = role;
+  if (role !== "user") { const mm = await db.ref("modMenus").get(); modMenus = mm.val() || {}; }
   const snap = await db.ref("users/" + user.uid).get();
   let profile = snap.val();
   if (!profile && isAdmin) { profile = { nome: "Administrador", sobrenome: "", email: user.email, whatsapp: "(00) 00000-0000", cidade: "-", uf: "SP - São Paulo", foto: "" }; await db.ref("users/" + user.uid).set(profile); }
@@ -259,20 +260,43 @@ function renderMe() {
 }
 
 /* ---------- navegação ---------- */
+// menus que o admin pode liberar/bloquear para moderadores (padrão: liberado?)
+const MOD_MENUS = [["chamados","Chamados",true],["links","Links úteis",true],["produtos","Produtos",false],["gerar","Gerar Números",false],["automacao","Automação",false],["linksadm","Links (gerenciar)",false]];
+let modMenus = {};
+const modAllowed = (id) => { const d = MOD_MENUS.find(m => m[0] === id); if (!d) return false; return modMenus[id] === undefined ? d[2] : modMenus[id] === true; };
 const TABS = {
   user: [["pedidos","Meus pedidos"],["suporte","Suporte"],["links","Links úteis"],["perfil","Perfil"]],
   moderator: [["chamados","Chamados"],["links","Links úteis"],["perfil","Perfil"]],
   admin: [["chamados","Chamados"],["usuarios","Usuários"],["produtos","Produtos"],["gerar","Gerar Números"],["automacao","Automação"],["linksadm","Links"],["aparencia","Aparência"],["perfil","Perfil"]]
 };
-function buildNav() {
+function myTabs() {
+  if (myRole !== "moderator") return TABS[myRole];
+  return [...MOD_MENUS.filter(m => modAllowed(m[0])).map(m => [m[0], m[1]]), ["perfil","Perfil"]];
+}
+function buildNav(keepTab) {
   const nav = $("nav"); nav.innerHTML = "";
-  TABS[myRole].forEach(([id, label], i) => {
+  const tabs = myTabs();
+  tabs.forEach(([id, label], i) => {
     const b = el("button"); b.dataset.tab = id; b.append(el("span", null, label));
     if (id === "chamados") { const n = el("span", "notif hidden"); n.id = "notifBadge"; b.append(n); }
     b.onclick = () => openTab(id); nav.append(b);
   });
-  initData();
-  openTab(TABS[myRole][0][0]);
+  if (keepTab === undefined) initData();
+  openTab(keepTab && tabs.some(t => t[0] === keepTab) ? keepTab : tabs[0][0]);
+}
+const canUse = (id) => myRole === "admin" || (myRole === "moderator" && modAllowed(id));
+let permStarted = new Set();
+function startPermData() {
+  if (canUse("automacao") && !permStarted.has("faq")) { permStarted.add("faq"); listen(db.ref("faq"), "value", renderFaqAdmin); $("welcomeMsg").value = siteSettings.welcome || DEFAULT_WELCOME; }
+  if (canUse("gerar") && !permStarted.has("gen")) { permStarted.add("gen"); listen(db.ref("generated"), "value", s => { generated = s.val() || {}; renderGenerated(); }); }
+}
+function renderModMenusAdmin() {
+  const box = $("modMenusBox"); if (!box) return; box.innerHTML = "";
+  MOD_MENUS.forEach(([id, label]) => {
+    const l = el("label", "check"); const c = el("input"); c.type = "checkbox"; c.checked = modAllowed(id);
+    c.onchange = () => db.ref("modMenus/" + id).set(c.checked).then(() => toast(label + (c.checked ? " liberado" : " bloqueado") + " para moderadores."));
+    l.append(c, el("span", null, " " + label)); box.append(l);
+  });
 }
 function openTab(id) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("hidden", t.id !== "tab-" + id));
@@ -285,11 +309,18 @@ function initData() {
   listen(db.ref("faq"), "value", s => { faqData = s.val() || {}; });
   if (myRole === "user") listen(db.ref("orders/" + me.uid), "value", s => { myOrders = s.val() || {}; renderOrders(s); renderSupportOrders(); });
   if (myRole !== "user") listen(db.ref("chats"), "value", renderTickets);
+  if (myRole !== "user") listen(db.ref("modMenus"), "value", s => {
+    const before = JSON.stringify(modMenus); modMenus = s.val() || {};
+    renderModMenusAdmin();
+    if (myRole === "moderator" && before !== JSON.stringify(modMenus)) {
+      const cur = document.querySelector("#nav button.active"); buildNav(cur ? cur.dataset.tab : "perfil");
+      startPermData();
+    }
+  });
+  permStarted = new Set(); startPermData();
   if (myRole === "admin") {
-    listen(db.ref("faq"), "value", renderFaqAdmin);
     listen(db.ref("users"), "value", s => { allUsers = s.val() || {}; renderUsers(); });
     listen(db.ref("roles"), "value", s => { allRoles = s.val() || {}; renderUsers(); });
-    listen(db.ref("generated"), "value", s => { generated = s.val() || {}; renderGenerated(); });
     $("welcomeMsg").value = siteSettings.welcome || DEFAULT_WELCOME;
     $("lkNome").value = siteSettings.siteName || "Central de Suporte";
     $("lkTema").value = siteSettings.defaultTheme || "cyan";
